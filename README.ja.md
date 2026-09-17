@@ -28,6 +28,15 @@ Windowsで**ChatGPTデスクトップアプリ**の複数アカウントを、Go
 - **今のログインはそのまま** — 「メイン」として表示。移行も上書きもしない
 - **インストール不要・依存なし** — PowerShellスクリプトと `.cmd` だけ。トレイ常駐を選ばない限り何も常駐しない
 
+## 2つのモード
+
+各アカウントは次のどちらかです:
+
+- **分離モード（既定）** — 専用の Electron データと `CODEX_HOME` を持ち、ログインもCodexのプロジェクト/チャットも完全に別。**複数アカウントの同時起動が可能**。
+- **完全共有モード（`-Shared`）** — 実の `~/.codex` を使うので、**プロジェクト・チャット・設定が全アカウントで共有**（公式に近い挙動）。切替時に `auth.json` だけ差し替えます。**共有アカウントは1つずつ**（同じ `~/.codex` を2プロセスで触ると壊れ、現行Codex Desktopはシンボリックリンクしたセッションストアを拒否するため）。`auth.json` は毎回バックアップされ、失敗しても再ログインで復帰できます（プロジェクト/チャットは無傷）。
+
+完全共有アカウントの初回: 起動してログイン → `-SaveAuth <id>`（または一覧で右クリック→「現在のログインをこのアカウントとして保存」）。
+
 ## 仕組み
 
 ChatGPTデスクトップアプリはElectron製で、次の2つで完全に別インスタンスを起動できます。
@@ -52,7 +61,7 @@ ChatGPTデスクトップアプリはElectron製で、次の2つで完全に別�
 PowerShellで実行:
 
 ```powershell
-irm https://raw.githubusercontent.com/kociden/chatgpt-switcher/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/__OWNER__/__REPO__/main/install.ps1 | iex
 ```
 
 `Documents\ChatGPT-Switcher` にスクリプトを置き、スタートメニューとデスクトップにショートカットを作ります。システムには何もインストールされません。

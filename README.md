@@ -28,6 +28,15 @@ This script gives the desktop app what Google-style account switching would look
 - **Your current login is preserved** — it shows up as "Main"; nothing is migrated or overwritten
 - **No install, no dependencies** — one PowerShell script + a `.cmd` launcher. Nothing runs in the background unless you choose tray mode.
 
+## Two modes
+
+Each account is one of two modes:
+
+- **Isolated (default)** — its own Electron data and `CODEX_HOME`. Fully separate login and Codex projects/chats. **Multiple accounts can run at once.**
+- **Full-share (`-Shared`)** — uses your real `~/.codex`, so **projects, chats and config are shared across accounts** (like the official experience). Only `auth.json` is swapped on switch. **One shared account at a time** (two processes on one `~/.codex` would corrupt it, and current Codex Desktop rejects a symlinked session store). `auth.json` is backed up on every switch; a bad swap is recoverable by re-login.
+
+First run of a shared account: launch it, log in, then run `-SaveAuth <id>` (or right-click it → save current login).
+
 ## How it works
 
 The ChatGPT desktop app is an Electron app. Electron honors two things that let you run fully separate instances:
@@ -52,7 +61,7 @@ Each account is just a folder under `%USERPROFILE%\ChatGPT-Accounts\<id>\` holdi
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/kociden/chatgpt-switcher/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/__OWNER__/__REPO__/main/install.ps1 | iex
 ```
 
 This downloads the script to `Documents\ChatGPT-Switcher`, and creates a Start Menu + Desktop shortcut. Nothing is installed system-wide.

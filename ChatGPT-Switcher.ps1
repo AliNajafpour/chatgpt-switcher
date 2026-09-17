@@ -31,13 +31,15 @@ param(
   [switch]$AutoStartTray,
   [switch]$Diagnose,
   [switch]$NoShortcut,
-  [switch]$Version
+  [switch]$Version,
+  [switch]$Shared,
+  [string]$SaveAuth
 )
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:AppVersion = '1.1.0'
+$script:AppVersion = '1.2.0'
 $script:AppId      = 'Alyawmu.ChatGPTSwitcher'   # taskbar grouping + jump list identity
 $script:ScriptPath = $MyInvocation.MyCommand.Path
 $script:Root       = Join-Path $env:USERPROFILE 'ChatGPT-Accounts'
@@ -256,7 +258,7 @@ function Find-Account {
 }
 
 function Add-Account {
-  param([string]$Display, [switch]$SkipShortcut)
+  param([string]$Display, [switch]$SkipShortcut, [switch]$Shared)
   $Display = $Display.Trim()
   if ([string]::IsNullOrWhiteSpace($Display)) { throw 'アカウント名が空です。' }
   $cfg = Get-Config
@@ -270,6 +272,7 @@ function Add-Account {
     display = $Display
     color   = $color
     created = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    mode    = $(if ($Shared) { 'shared' } else { 'isolated' })
   }
   $cfg.accounts = @($cfg.accounts) + @($acc)
   Save-Config $cfg
@@ -351,6 +354,10 @@ function Start-Account {
 
   $acc = Find-Account $Id
   if (-not $acc) { throw "アカウント「$Id」が登録されていません。" }
+
+  # 完全共有モード: 実の ~/.codex を使い、auth.json だけ差し替える（1アカウントずつ）
+  if ($acc.mode -eq 'shared') { Start-SharedAccount -Account $acc; return }
+
   if (-not $app.Exe) { throw "ChatGPT.exe が見つかりません（$($app.InstallLocation)）。" }
 
   $p = Get-AccountPaths $acc.id
@@ -371,6 +378,93 @@ function Start-Account {
       Write-Log "launched: $($acc.id) via Invoke-CommandInDesktopPackage"
     } else { throw }
   }
+}
+
+# ------------------------------------------------------------------ 完全共有モード（実 ~/.codex + auth.json 差し替え）
+
+function Get-RealCodexHome { return (Join-Path $env:USERPROFILE '.codex') }
+
+function Get-SharedAuthStore { param($Account) return (Join-Path (Get-AccountPaths $Account.id).Base 'shared-auth.json') }
+
+# 実ホーム(~/.codex)を使う ChatGPT.exe が動いているか（= --user-data-dir なし・--type= なし）
+function Test-RealHomeInstanceRunning {
+  try { $procs = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe'" -ErrorAction SilentlyContinue) } catch { return $false }
+  foreach ($pr in $procs) {
+    if ($pr.CommandLine -and ($pr.CommandLine -notmatch '--user-data-dir=') -and ($pr.CommandLine -notmatch '--type=')) { return $true }
+  }
+  return $false
+}
+
+function Get-ActiveShared {
+  $cfg = Get-Config
+  if ($cfg.PSObject.Properties.Name -contains 'activeShared') { return $cfg.activeShared }
+  return $null
+}
+function Set-ActiveShared {
+  param([string]$Id)
+  $cfg = Get-Config
+  $cfg | Add-Member -NotePropertyName activeShared -NotePropertyValue $Id -Force
+  Save-Config $cfg
+}
+
+# 現在の ~/.codex/auth.json を、指定アカウントの保存先に取り込む（ログイン後の保存にも使う）
+function Save-CurrentAuthToAccount {
+  param($Account)
+  $realAuth = Join-Path (Get-RealCodexHome) 'auth.json'
+  if (-not (Test-Path -LiteralPath $realAuth)) { throw "現在の ~/.codex\auth.json が見つかりません。先にChatGPTで一度ログインしてください。" }
+  $store = Get-SharedAuthStore $Account
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $store) | Out-Null
+  Copy-Item -LiteralPath $realAuth -Destination $store -Force
+  Set-ActiveShared $Account.id
+  Write-Log "shared: saved current auth as $($Account.id)"
+}
+
+function Start-SharedAccount {
+  param($Account)
+  $app  = Get-ChatGptApp
+  if (-not $app) { throw 'ChatGPTデスクトップアプリが見つかりません。' }
+  $real = Get-RealCodexHome
+  $realAuth = Join-Path $real 'auth.json'
+  New-Item -ItemType Directory -Force -Path $real, (Get-AccountPaths $Account.id).Base | Out-Null
+
+  if (Test-RealHomeInstanceRunning) {
+    throw "完全共有アカウントは1つずつです。今開いているChatGPTのウィンドウを閉じてから、もう一度切り替えてください。"
+  }
+
+  $active = Get-ActiveShared
+
+  if (Test-Path -LiteralPath $realAuth) {
+    # 必ずバックアップ（失敗時の復帰用）
+    Copy-Item -LiteralPath $realAuth -Destination (Join-Path $real 'auth.json.switcher-bak') -Force
+    # 直前にアクティブだった共有アカウントの保存先へ、現在のauth（ログイン更新）を取り込む
+    if ($active -and $active -ne $Account.id) {
+      $prev = Find-Account $active
+      if ($prev -and $prev.mode -eq 'shared') {
+        Copy-Item -LiteralPath $realAuth -Destination (Get-SharedAuthStore $prev) -Force
+        Write-Log "shared: captured current auth into $($prev.id)"
+      }
+    }
+  }
+
+  # ターゲットの保存authがあれば実ホームへ展開。無ければ現状のまま（初回：ログイン後に保存する）
+  $store = Get-SharedAuthStore $Account
+  if (Test-Path -LiteralPath $store) {
+    Copy-Item -LiteralPath $store -Destination $realAuth -Force
+    Write-Log "shared: restored auth for $($Account.id)"
+  } else {
+    Write-Log "shared: no saved auth for $($Account.id); launching with current login"
+  }
+  Set-ActiveShared $Account.id
+
+  # 実ホーム＝実Electronで通常起動（環境変数は上書きしない）
+  Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
+  Remove-Item Env:CODEX_ELECTRON_USER_DATA_PATH -ErrorAction SilentlyContinue
+  if ($app.Kind -eq 'Store' -and $app.AppId) {
+    Start-Process -FilePath 'explorer.exe' -ArgumentList ("shell:AppsFolder\{0}!{1}" -f $app.PackageFamilyName, $app.AppId)
+  } else {
+    Start-Process -FilePath $app.Exe
+  }
+  Write-Log "launched shared: $($Account.id)"
 }
 
 # ------------------------------------------------------------------ ショートカット
@@ -573,14 +667,22 @@ function Invoke-AddAccountFlow {
   Ensure-Gui
   $name = Show-InputDialog -Prompt 'アカウントの表示名を入力してください（例: 仕事用 / 個人 / 副業）' -Title 'アカウントを追加'
   if ([string]::IsNullOrWhiteSpace($name)) { return $null }
+  # モード選択: 分離（同時起動OK・各自のプロジェクト） / 完全共有（1つずつ・プロジェクト共有）
+  $shared = Ask-YesNo ("「{0}」のモードを選んでください。`n`n[はい] 完全共有モード:`n  Codexのプロジェクト/チャットを全アカウントで共有（公式風）。ただし1アカウントずつ（同時起動不可）。`n`n[いいえ] 分離モード:`n  アカウントごとに独立。同時起動OK。プロジェクトは別々。" -f $name) '完全共有モードにしますか？'
   try {
-    $acc = Add-Account -Display $name
+    $acc = Add-Account -Display $name -Shared:$shared
   } catch {
     Show-Message $_.Exception.Message 'エラー' 'Error'
     return $null
   }
-  if (Ask-YesNo ("「{0}」を追加しました。デスクトップにショートカットも作りました。`n`n今すぐ起動してログインしますか？" -f $acc.display)) {
-    try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+  if ($acc.mode -eq 'shared') {
+    if (Ask-YesNo ("「{0}」を完全共有で追加しました。`n`n今から起動してこのアカウントでログインしますか？`n（ログイン後、一覧の右クリック→「現在のログインをこのアカウントとして保存」を実行してください）" -f $acc.display)) {
+      try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+    }
+  } else {
+    if (Ask-YesNo ("「{0}」を追加しました。デスクトップにショートカットも作りました。`n`n今すぐ起動してログインしますか？" -f $acc.display)) {
+      try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+    }
   }
   return $acc
 }
@@ -676,15 +778,17 @@ function Update-PickerRows {
   $cfg = Get-Config
 
   $rows = @()
-  $rows += [pscustomobject]@{ id = $script:MainId; display = $script:MainLabel; color = '#10A37F'; initial = 'M' }
+  $rows += [pscustomobject]@{ id = $script:MainId; display = $script:MainLabel; color = '#10A37F'; initial = 'M'; mode = 'isolated' }
   foreach ($a in $cfg.accounts) {
-    $rows += [pscustomobject]@{ id = $a.id; display = $a.display; color = $a.color; initial = $a.display.Substring(0, 1) }
+    $m = if ($a.PSObject.Properties.Name -contains 'mode') { $a.mode } else { 'isolated' }
+    $rows += [pscustomobject]@{ id = $a.id; display = $a.display; color = $a.color; initial = $a.display.Substring(0, 1); mode = $m }
   }
 
   foreach ($r in $rows) {
     $btn = New-Object System.Windows.Forms.Button
     $isRunning = ($running -contains $r.id)
-    $btn.Text = '   ' + $r.display + $(if ($isRunning) { '   ● 起動中' } else { '' })
+    $badge = $(if ($r.mode -eq 'shared') { '  〔共有〕' } else { '' })
+    $btn.Text = '   ' + $r.display + $badge + $(if ($isRunning) { '   ● 起動中' } else { '' })
     $btn.Tag = $r.id
     $btn.Width = 400
     $btn.Height = 46
@@ -711,6 +815,17 @@ function Update-PickerRows {
     if ($r.id -ne $script:MainId) {
       $cm = New-Object System.Windows.Forms.ContextMenuStrip
       $cm.Tag = $r.id
+      if ($r.mode -eq 'shared') {
+        $miSave = $cm.Items.Add('現在のログインをこのアカウントとして保存')
+        $miSave.Tag = $r.id
+        $miSave.add_Click({
+          $acc = Find-Account $this.Tag
+          if (Ask-YesNo ("今 ~/.codex にログイン中のアカウントを「{0}」として保存します。よろしいですか？" -f $acc.display)) {
+            try { Save-CurrentAuthToAccount $acc; Show-Message ("「{0}」として現在のログインを保存しました。" -f $acc.display) } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+          }
+        })
+        [void]$cm.Items.Add('-')
+      }
       $mi1 = $cm.Items.Add('デスクトップにショートカットを作る')
       $mi1.Tag = $r.id
       $mi1.add_Click({ try { New-AccountShortcut -Account (Find-Account $this.Tag) | Out-Null; Show-Message 'デスクトップにショートカットを作成しました。' } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
@@ -735,7 +850,7 @@ function Update-PickerRows {
   }
 
   $hint = New-Object System.Windows.Forms.Label
-  $hint.Text = '右クリックでショートカット作成・名前変更・削除。複数アカウントの同時起動も可。'
+  $hint.Text = '右クリックで各種操作。〔共有〕=プロジェクト共有(1つずつ)。それ以外は分離(同時起動可)。'
   $hint.AutoSize = $true
   $hint.ForeColor = [System.Drawing.Color]::Gray
   $hint.Font = New-Object System.Drawing.Font('Yu Gothic UI', 8.5)
@@ -828,13 +943,20 @@ function Show-Diagnose {
   Write-Host ''
   $running = Get-RunningAccountIds
   $cfg = Get-Config
-  Write-Host ("登録アカウント: {0} 件" -f $cfg.accounts.Count) -ForegroundColor Cyan
+  $active = Get-ActiveShared
+  Write-Host ("登録アカウント: {0} 件   完全共有アクティブ: {1}" -f $cfg.accounts.Count, $(if ($active) { $active } else { '(なし)' })) -ForegroundColor Cyan
   Write-Host ("  [main] {0}{1}" -f $script:MainLabel, $(if ($running -contains $script:MainId) { '  ● 起動中' } else { '' }))
   foreach ($a in $cfg.accounts) {
     $p = Get-AccountPaths $a.id
-    Write-Host ("  [{0}] {1}{2}" -f $a.id, $a.display, $(if ($running -contains $a.id) { '  ● 起動中' } else { '' }))
-    Write-Host ("      electron: {0}" -f $p.Electron)
-    Write-Host ("      codex   : {0}" -f $p.Codex)
+    $m = if ($a.PSObject.Properties.Name -contains 'mode') { $a.mode } else { 'isolated' }
+    Write-Host ("  [{0}] {1}  <{2}>{3}" -f $a.id, $a.display, $m, $(if ($running -contains $a.id) { '  ● 起動中' } else { '' }))
+    if ($m -eq 'shared') {
+      $store = Get-SharedAuthStore $a
+      Write-Host ("      shared-auth: {0}  (保存済: {1})" -f $store, (Test-Path $store))
+    } else {
+      Write-Host ("      electron: {0}" -f $p.Electron)
+      Write-Host ("      codex   : {0}" -f $p.Codex)
+    }
   }
   Write-Host ''
   Write-Host 'ChatGPT.exe プロセス:' -ForegroundColor Cyan
@@ -864,9 +986,22 @@ try {
   }
 
   if ($Add) {
-    $acc = Add-Account -Display $Add -SkipShortcut:$NoShortcut
-    Write-Host ("追加しました: [{0}] {1}" -f $acc.id, $acc.display)
+    $acc = Add-Account -Display $Add -SkipShortcut:$NoShortcut -Shared:$Shared
+    Write-Host ("追加しました: [{0}] {1}{2}" -f $acc.id, $acc.display, $(if ($acc.mode -eq 'shared') { ' (完全共有)' } else { '' }))
     Write-Host ("起動: ChatGPT-Switcher.ps1 -Launch {0}" -f $acc.id)
+    if ($acc.mode -eq 'shared') {
+      Write-Host "完全共有: 初回はこのアカウントでログイン後、次を実行して現在のログインを保存してください:"
+      Write-Host ("  ChatGPT-Switcher.ps1 -SaveAuth {0}" -f $acc.id)
+    }
+    return
+  }
+
+  if ($SaveAuth) {
+    $acc = Find-Account $SaveAuth
+    if (-not $acc) { throw "アカウント「$SaveAuth」が見つかりません。" }
+    if ($acc.mode -ne 'shared') { throw "「$($acc.display)」は完全共有アカウントではありません。" }
+    Save-CurrentAuthToAccount $acc
+    Write-Host ("現在のログインを「{0}」として保存しました。" -f $acc.display)
     return
   }
 
