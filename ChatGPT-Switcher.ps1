@@ -37,7 +37,8 @@ param(
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:Version    = '1.0.0'
+$script:AppVersion = '1.1.0'
+$script:AppId      = 'Alyawmu.ChatGPTSwitcher'   # taskbar grouping + jump list identity
 $script:ScriptPath = $MyInvocation.MyCommand.Path
 $script:Root       = Join-Path $env:USERPROFILE 'ChatGPT-Accounts'
 $script:ConfigPath = Join-Path $script:Root 'accounts.json'
@@ -64,6 +65,7 @@ function Ensure-Gui {
   Add-Type -AssemblyName System.Drawing
   [System.Windows.Forms.Application]::EnableVisualStyles()
   $script:Gui = $true
+  Set-ProcessAppId   # taskbar button groups under the pinned switcher icon
 }
 
 function Get-DialogOwner {
@@ -275,6 +277,7 @@ function Add-Account {
   New-Item -ItemType Directory -Force -Path $p.Electron, $p.Codex | Out-Null
   Write-Log "account added: $id ($Display)"
   if (-not $SkipShortcut) { New-AccountShortcut -Account $acc | Out-Null }
+  Set-JumpList
   return $acc
 }
 
@@ -291,6 +294,7 @@ function Remove-Account {
   $lnk = Get-AccountShortcutPath $acc
   if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force }
   Write-Log "account removed: $($acc.id)"
+  Set-JumpList
 }
 
 function Rename-Account {
@@ -307,6 +311,7 @@ function Rename-Account {
     Remove-Item -LiteralPath $old -Force
     New-AccountShortcut -Account (Find-Account $acc.id) | Out-Null
   }
+  Set-JumpList
 }
 
 # ------------------------------------------------------------------ 起動
@@ -374,6 +379,120 @@ function Get-PowerShellExe {
   return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
 }
 
+# ------------------------------------------------------------------ ネイティブ（AppID / ジャンプリスト）
+
+function Ensure-Native {
+  if ('CGS.Native' -as [type]) { return $true }
+  $code = @'
+using System;
+using System.Runtime.InteropServices;
+namespace CGS {
+  [ComImport, Guid("00021401-0000-0000-C000-000000000046")] class CShellLink { }
+  [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+  interface IShellLinkW {
+    void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder f, int c, IntPtr fd, int fl);
+    void GetIDList(out IntPtr ppidl); void SetIDList(IntPtr pidl);
+    void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder n, int c);
+    void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string n);
+    void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder d, int c);
+    void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string d);
+    void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder a, int c);
+    void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string a);
+    void GetHotkey(out short h); void SetHotkey(short h);
+    void GetShowCmd(out int s); void SetShowCmd(int s);
+    void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder p, int c, out int i);
+    void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string p, int i);
+    void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string r, int dw);
+    void Resolve(IntPtr hwnd, int fl); void SetPath([MarshalAs(UnmanagedType.LPWStr)] string f);
+  }
+  [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("0000010b-0000-0000-C000-000000000046")]
+  interface IPersistFile {
+    void GetClassID(out Guid c); [PreserveSig] int IsDirty();
+    void Load([MarshalAs(UnmanagedType.LPWStr)] string f, int m);
+    void Save([MarshalAs(UnmanagedType.LPWStr)] string f, [MarshalAs(UnmanagedType.Bool)] bool r);
+    void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string f);
+    void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string f);
+  }
+  [StructLayout(LayoutKind.Sequential)] struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+  [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99")]
+  interface IPropertyStore {
+    void GetCount(out uint c); void GetAt(uint i, out PROPERTYKEY k);
+    void GetValue(ref PROPERTYKEY k, out PROPVARIANT v);
+    void SetValue(ref PROPERTYKEY k, ref PROPVARIANT v); void Commit();
+  }
+  [StructLayout(LayoutKind.Explicit, Size = 24)] struct PROPVARIANT {
+    [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p;
+  }
+  public static class Native {
+    [DllImport("shell32.dll")] static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string id);
+    [DllImport("propsys.dll")] static extern int InitPropVariantFromString([MarshalAs(UnmanagedType.LPWStr)] string s, out PROPVARIANT pv);
+    [DllImport("ole32.dll")] static extern int PropVariantClear(ref PROPVARIANT pv);
+    public static void SetProcessAppId(string id) { SetCurrentProcessExplicitAppUserModelID(id); }
+    public static void SetShortcutAppId(string lnk, string id) {
+      var sl = (IShellLinkW)new CShellLink();
+      var pf = (IPersistFile)sl;
+      pf.Load(lnk, 2); // STGM_READWRITE
+      var ps = (IPropertyStore)sl;
+      var key = new PROPERTYKEY(); key.fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"); key.pid = 5;
+      PROPVARIANT pv; InitPropVariantFromString(id, out pv);
+      ps.SetValue(ref key, ref pv); ps.Commit();
+      pf.Save(lnk, true); PropVariantClear(ref pv);
+    }
+  }
+}
+'@
+  try { Add-Type -TypeDefinition $code -ErrorAction Stop; return $true }
+  catch { Write-Log ("native load failed: {0}" -f $_.Exception.Message); return $false }
+}
+
+function Set-ProcessAppId {
+  try { if (Ensure-Native) { [CGS.Native]::SetProcessAppId($script:AppId) } } catch { Write-Log "SetProcessAppId: $_" }
+}
+
+function Set-ShortcutAppId {
+  param([string]$LnkPath)
+  try { if (Ensure-Native) { [CGS.Native]::SetShortcutAppId($LnkPath, $script:AppId) } } catch { Write-Log "SetShortcutAppId: $_" }
+}
+
+# 右クリック（ジャンプリスト）にアカウント一覧を出す
+function Set-JumpList {
+  try {
+    Set-ProcessAppId
+    Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
+    $ps   = Get-PowerShellExe
+    $icon = Get-AppIconPath
+    $jl = New-Object System.Windows.Shell.JumpList
+    $jl.ShowRecentCategory = $false
+    $jl.ShowFrequentCategory = $false
+
+    $rows = @()
+    $rows += [pscustomobject]@{ id = $script:MainId; label = 'メイン' }
+    foreach ($a in (Get-Config).accounts) { $rows += [pscustomobject]@{ id = $a.id; label = $a.display } }
+
+    foreach ($r in $rows) {
+      $t = New-Object System.Windows.Shell.JumpTask
+      $t.Title           = $r.label
+      $t.CustomCategory  = 'アカウント'
+      $t.ApplicationPath = $ps
+      $t.Arguments       = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Launch "{1}"' -f $script:ScriptPath, $r.id)
+      if ($icon) { $t.IconResourcePath = $icon }
+      $t.Description = ("ChatGPT を「{0}」で開く" -f $r.label)
+      $jl.JumpItems.Add($t)
+    }
+
+    # 一覧ウィンドウを開くタスク
+    $open = New-Object System.Windows.Shell.JumpTask
+    $open.Title = '切替ウィンドウを開く'
+    $open.ApplicationPath = $ps
+    $open.Arguments = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $script:ScriptPath)
+    if ($icon) { $open.IconResourcePath = $icon }
+    $jl.JumpItems.Add($open)
+
+    $jl.Apply()
+    Write-Log ("jumplist applied: {0} items" -f $jl.JumpItems.Count)
+  } catch { Write-Log ("jumplist skipped: {0}" -f $_.Exception.Message) }
+}
+
 function New-Shortcut {
   param([string]$LnkPath, [string]$Arguments, [string]$IconPath, [string]$Description)
   $dir = Split-Path -Parent $LnkPath
@@ -418,6 +537,9 @@ function New-PickerShortcuts {
   $made += New-Shortcut -LnkPath (Join-Path $desktop 'ChatGPT アカウント切替.lnk') -Arguments '' -IconPath $icon -Description 'ChatGPT のアカウントを選んで起動'
   $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT アカウント切替.lnk') -Arguments '' -IconPath $icon -Description 'ChatGPT のアカウントを選んで起動'
   $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT 切替（トレイ常駐）.lnk') -Arguments '-Tray' -IconPath $icon -Description 'タスクトレイに常駐して右クリックで切替'
+  # ピン留めした切替アイコンを右クリック→アカウント一覧（ジャンプリスト）を出すための AppID を付与
+  foreach ($m in $made) { Set-ShortcutAppId -LnkPath $m }
+  Set-JumpList
   return $made
 }
 
@@ -465,6 +587,7 @@ function Invoke-AddAccountFlow {
 
 function Show-Picker {
   Ensure-Gui
+  Set-JumpList
 
   $form = New-Object System.Windows.Forms.Form
   $form.Text = 'ChatGPT アカウント切替'
@@ -626,6 +749,7 @@ function Update-PickerRows {
 
 function Start-Tray {
   Ensure-Gui
+  Set-JumpList
   $ni = New-Object System.Windows.Forms.NotifyIcon
   $iconPath = Get-AppIconPath
   $ni.Icon = [System.Drawing.SystemIcons]::Application
@@ -676,7 +800,7 @@ function Start-Tray {
 
 function Show-Diagnose {
   Write-Host '=== ChatGPT アカウント切替 環境診断 ===' -ForegroundColor Cyan
-  Write-Host ("バージョン   : {0}" -f $script:Version)
+  Write-Host ("バージョン   : {0}" -f $script:AppVersion)
   Write-Host ("スクリプト   : {0}" -f $script:ScriptPath)
   Write-Host ("データ保存先 : {0}" -f $script:Root)
   Write-Host ("PowerShell   : {0}" -f $PSVersionTable.PSVersion)
@@ -725,7 +849,7 @@ function Show-Diagnose {
 # ------------------------------------------------------------------ エントリ
 
 try {
-  if ($Version) { Write-Host ("ChatGPT-Switcher {0}" -f $script:Version); return }
+  if ($Version) { Write-Host ("ChatGPT-Switcher {0}" -f $script:AppVersion); return }
 
   if ($Diagnose) { Show-Diagnose; return }
 
@@ -751,7 +875,9 @@ try {
   if ($Setup) {
     $made = New-PickerShortcuts
     $made | ForEach-Object { Write-Host "作成: $_" }
-    if (-not $NoShortcut) { Show-Message ("ショートカットを作成しました:`n" + ($made -join "`n")) }
+    $msg = "ショートカットを作成しました:`n" + ($made -join "`n") + "`n`nタスクバーに固定するには:`nスタートメニューの「ChatGPT アカウント切替」を右クリック →「タスクバーにピン留めする」。`nピン留め後、そのアイコンを右クリックすると各アカウントが並びます（ジャンプリスト）。"
+    Write-Host $msg
+    if (-not $NoShortcut) { Show-Message $msg }
     return
   }
 
