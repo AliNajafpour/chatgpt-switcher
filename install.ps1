@@ -1,6 +1,6 @@
 ﻿<#
   ChatGPT Switcher for Windows - one-line installer
-    irm https://raw.githubusercontent.com/__OWNER__/__REPO__/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/kociden/chatgpt-switcher/main/install.ps1 | iex
 
   Downloads the switcher into Documents\ChatGPT-Switcher and creates
   Desktop + Start Menu shortcuts. Nothing is installed system-wide and
@@ -9,7 +9,7 @@
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$repoRaw = 'https://raw.githubusercontent.com/__OWNER__/__REPO__/main'
+$repoRaw = 'https://raw.githubusercontent.com/kociden/chatgpt-switcher/main'
 $dest    = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'ChatGPT-Switcher'
 $files   = @('ChatGPT-Switcher.ps1', 'ChatGPT-Switcher.cmd', 'README.md', 'README.ja.md', 'LICENSE')
 

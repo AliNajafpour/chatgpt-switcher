@@ -52,7 +52,7 @@ Each account is just a folder under `%USERPROFILE%\ChatGPT-Accounts\<id>\` holdi
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/__OWNER__/__REPO__/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/kociden/chatgpt-switcher/main/install.ps1 | iex
 ```
 
 This downloads the script to `Documents\ChatGPT-Switcher`, and creates a Start Menu + Desktop shortcut. Nothing is installed system-wide.

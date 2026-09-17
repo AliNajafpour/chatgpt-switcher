@@ -52,7 +52,7 @@ ChatGPTデスクトップアプリはElectron製で、次の2つで完全に別�
 PowerShellで実行:
 
 ```powershell
-irm https://raw.githubusercontent.com/__OWNER__/__REPO__/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/kociden/chatgpt-switcher/main/install.ps1 | iex
 ```
 
 `Documents\ChatGPT-Switcher` にスクリプトを置き、スタートメニューとデスクトップにショートカットを作ります。システムには何もインストールされません。

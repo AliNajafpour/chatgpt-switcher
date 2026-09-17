@@ -13,7 +13,10 @@ param(
   [switch]$Private,
   [string]$Description = 'Switch between multiple ChatGPT desktop app accounts on Windows - a Google-style account switcher. Dependency-free PowerShell.'
 )
-$ErrorActionPreference = 'Stop'
+# 'Continue' so that git/gh writing progress to stderr is not treated as a
+# terminating error (native tools use stderr for normal output). We check
+# $LASTEXITCODE explicitly after the calls that matter.
+$ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 Set-Location -LiteralPath $PSScriptRoot
 $log = Join-Path $PSScriptRoot '_publish_log.txt'
@@ -40,6 +43,57 @@ Log ("GitHub user: {0}" -f $owner)
 # --- git identity (only set if missing) ---
 if (-not (git config --global user.name))  { git config --global user.name  $owner }
 if (-not (git config --global user.email)) { git config --global user.email ("{0}@users.noreply.github.com" -f $owner) }
+
+# --- generate GitHub issue templates (can't be delivered via remote tools) ---
+$itDir = Join-Path $PSScriptRoot '.github\ISSUE_TEMPLATE'
+New-Item -ItemType Directory -Force -Path $itDir | Out-Null
+$bug = @'
+---
+name: Bug report
+about: Something doesn't work (launch fails, dialog issues, etc.)
+title: ""
+labels: bug
+---
+
+**What happened**
+A clear description of the problem.
+
+**Steps to reproduce**
+1. …
+2. …
+
+**Diagnostics**
+Paste the output of `ChatGPT-Switcher.cmd -Diagnose` (redact anything private):
+
+```
+(paste here)
+```
+
+**Environment**
+- Windows version:
+- PowerShell version:
+- ChatGPT app version (from -Diagnose):
+- Installed via: one-liner / manual ZIP
+'@
+$feat = @'
+---
+name: Feature request
+about: Suggest an improvement
+title: ""
+labels: enhancement
+---
+
+**What would you like?**
+A clear description of the feature.
+
+**Why**
+The problem it solves or the workflow it improves.
+
+**Notes**
+This tool aims to stay a small, dependency-free, single-file script - see CONTRIBUTING.md for scope.
+'@
+Set-Content -LiteralPath (Join-Path $itDir 'bug_report.md')     -Value $bug  -Encoding UTF8
+Set-Content -LiteralPath (Join-Path $itDir 'feature_request.md') -Value $feat -Encoding UTF8
 
 # --- local repo ---
 if (-not (Test-Path (Join-Path $PSScriptRoot '.git'))) { git init -b main | Out-Null }
