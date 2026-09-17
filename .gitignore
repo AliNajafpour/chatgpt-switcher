@@ -1,0 +1,14 @@
+# Local test/runtime artifacts
+_selftest*.cmd
+_cleanup*.cmd
+_check*.cmd
+_relaunch*.cmd
+_tidy*.cmd
+*_log.txt
+switcher.log
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
