@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `-NoAutoStartTray` and a checked startup setting; enabling/disabling migrates the legacy startup shortcut.
 - `-Remove NAME -KeepData` and a confirmed keep-data action in the profile menu.
 - Windows CI for core, CLI and UI checks under Windows PowerShell 5.1 and PowerShell 7.
-- Expanded English README and Persian guide covering download, setup, usage, upgrades and troubleshooting.
+- Expanded English README covering download, setup, usage, upgrades and troubleshooting.
 
 ### Fixed
 - CLI commands now preserve output, error output and exit codes; only the picker and a lone `-Tray` launch in the background.

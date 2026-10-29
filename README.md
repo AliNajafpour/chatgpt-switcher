@@ -4,7 +4,7 @@ A local Windows launcher for using separate accounts in the official Codex deskt
 
 Each added profile gets its own app data and `CODEX_HOME`. Your existing desktop login remains available as **Main (existing login)**. Separate profiles can run together when supported by the installed desktop app.
 
-Version **1.4.0** · Windows · PowerShell · [راهنمای فارسی](README.fa.md)
+Version **1.4.0** · Windows · PowerShell
 
 This is an unofficial community project, unaffiliated with OpenAI. It launches your installed app; it does not install Codex, provide accounts, or change subscription limits.
 
