@@ -155,12 +155,14 @@ function Get-ChatGptApp {
   if ($pkg) {
     $loc = $pkg.InstallLocation
     $exe = $null
-    foreach ($cand in @((Join-Path $loc 'Codex.exe'), (Join-Path $loc 'app\Codex.exe'), (Join-Path $loc 'ChatGPT.exe'), (Join-Path $loc 'app\ChatGPT.exe'))) {
+    # The Store Codex.exe wrapper drops profile arguments; prefer Electron itself.
+    foreach ($cand in @((Join-Path $loc 'ChatGPT.exe'), (Join-Path $loc 'app\ChatGPT.exe'), (Join-Path $loc 'Codex.exe'), (Join-Path $loc 'app\Codex.exe'))) {
       if (Test-Path -LiteralPath $cand) { $exe = $cand; break }
     }
     if (-not $exe) {
       $found = Get-ChildItem -LiteralPath $loc -File -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -in @('Codex.exe', 'ChatGPT.exe') } | Select-Object -First 1
+        Where-Object { $_.Name -in @('Codex.exe', 'ChatGPT.exe') } |
+        Sort-Object { $_.Name -ne 'ChatGPT.exe' } | Select-Object -First 1
       if ($found) { $exe = $found.FullName }
     }
     $appId = $null
@@ -180,6 +182,7 @@ function Get-ChatGptApp {
   }
 
   foreach ($c in @(
+      (Join-Path $env:LOCALAPPDATA 'Programs\Codex\ChatGPT.exe'),
       (Join-Path $env:LOCALAPPDATA 'Programs\Codex\Codex.exe'),
       (Join-Path $env:LOCALAPPDATA 'Programs\ChatGPT\ChatGPT.exe'),
       (Join-Path $env:ProgramFiles 'ChatGPT\ChatGPT.exe'))) {

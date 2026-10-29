@@ -21,6 +21,7 @@ Reviewed against upstream commit `497bc55` on 2026-10-29. This review covers eve
 | Rename Work to an existing Personal label | Two indistinguishable account names | Reject duplicate names when renaming |
 | Empty display or invalid color in config | Picker/tray could crash while drawing | Validate UI-critical fields during config loading |
 | Store app uses `app/Codex.exe` | App could be missed | Check both Codex and legacy executable names |
+| Both ChatGPT.exe and the Store Codex.exe wrapper exist | Wrapper can activate Main and drop profile arguments | Prefer the actual ChatGPT.exe Electron executable; confirmed with a disposable real-app launch |
 | Store registration has no accessible executable | Valid standalone install could be ignored | Try standalone discovery before retaining the Store activation fallback |
 | Desktop update removes a cached executable | Tray keeps using an obsolete path | Rediscover missing cached executables |
 | Shared mode changes the main auth file | Main login was overwritten and copied into extra files | Remove shared-auth code and reject legacy shared launches |
@@ -32,7 +33,7 @@ The runtime interface, help, errors, diagnostics and new shortcut labels are Eng
 
 1. **Run a real desktop compatibility check** (`Start-Account`, `Get-ChatGptApp`).
    - What this is: the essential promise is two independent desktop sign-ins running together.
-   - Problem: the checks substitute process launching and package metadata. They cannot prove that an installed app version honors the isolation settings.
+   - Problem: automated checks substitute process launching and package metadata. A real disposable-profile test confirmed separate process/data-directory creation on Store build 26.1023.6621.0, but sign-in identities and persistence still need verification.
    - Fix: test two disposable accounts plus Main on a real installed app, from both a normal terminal and a Codex terminal. Check distinct sign-ins after restart, data separation, an app update, and launch failure. Record Windows, PowerShell and app versions. Never collect real authentication files in test artifacts.
    - If skipped: source-level checks can pass while the installed app still opens the wrong window or profile.
 

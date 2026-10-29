@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Block profile management when desktop process inspection fails or command lines cannot be read.
 - Detect app/Codex.exe, fall back to a standalone installation when the Store executable is unavailable, and refresh missing cached executables.
 - Reject duplicate names on rename and invalid display/color fields in config.
+- Prefer the real ChatGPT.exe Electron executable over the Store Codex.exe wrapper. On the tested Store build the wrapper drops profile arguments and activates the existing main window instead.
 
 ### Removed
 - Shared-auth switching and its CLI flags.

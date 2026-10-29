@@ -19,6 +19,7 @@ No explicit credential-exfiltration endpoint, telemetry sender, remote shell or 
 - Main clears inherited profile variables for launch and restores the parent environment afterward.
 - Shortcuts use stable profile IDs, preventing sanitized display-name collisions.
 - App detection supports app/Codex.exe, standalone fallback and rediscovery after cached executables disappear.
+- When both executables exist, app detection prefers ChatGPT.exe, the actual Electron executable, over the Store Codex.exe wrapper. A real disposable-profile comparison on Store version 26.1023.6621.0 reproduced the wrapper dropping profile arguments; direct Electron launch created an independent profile process and data directory. An existing isolated profile was also observed with its own user-data-dir argument. No authentication content was inspected.
 - Unreadable process command lines block profile management, just like failed process queries.
 - Rename rejects duplicate display names. Config loading rejects missing/empty display names and invalid color values before the picker tries to draw them.
 
@@ -32,6 +33,6 @@ Windows PowerShell 5.1 and PowerShell 7 checks cover parsing, unsafe/reserved ID
 
 Windows denied test-junction creation here, so that test reports SKIP. Link prevention was reviewed statically. A malicious process running as the same Windows user can still race file operations; this launcher is not a security boundary against that user.
 
-No real account login, simultaneous desktop session, shortcut installation, tray autostart or end-to-end GUI interaction was tested. Installed-app discovery and actual Store activation were not verified; discovery tests use synthetic package metadata. Compatibility with the installed app must be checked in normal use. No dependency audit of the official desktop app was performed. Remaining defects and product improvements are listed in REVIEW.md.
+An unauthenticated real-app isolation smoke check passed on the Store build noted above; the disposable test process tree was then stopped. Actual sign-in identity, account persistence, shortcut installation, tray autostart and end-to-end GUI interaction were not verified. The automated discovery tests still use synthetic package metadata. No dependency audit of the official desktop app was performed. Remaining defects and product improvements are listed in REVIEW.md.
 
 Profile files and authentication backups created by older versions remain sensitive. Protect them with Windows permissions; do not upload them. No extra encryption was added. Removing an account intentionally deletes that profile's local data.

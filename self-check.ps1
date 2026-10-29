@@ -128,6 +128,11 @@ try {
   function Get-AppxPackageManifest { [pscustomobject]@{Package=[pscustomobject]@{Applications=[pscustomobject]@{Application=@([pscustomobject]@{Id='App'})}}} }
   $script:AppCache = $null
   Assert ((& $detectBody).Exe -eq $packageExe) 'app\Codex.exe was not detected'
+  $electronExe = Join-Path $packageDir 'app\ChatGPT.exe'
+  Set-Content -LiteralPath $electronExe -Value 'fake Electron executable, never run'
+  $script:AppCache = $null
+  Assert ((& $detectBody).Exe -eq $electronExe) 'Codex wrapper was preferred over the real Electron executable'
+  Remove-Item -LiteralPath $electronExe
   Remove-Item -LiteralPath $packageExe
   $oldLocal = $env:LOCALAPPDATA; $oldPrograms = $env:ProgramFiles
   try {
