@@ -710,6 +710,13 @@ function Show-Picker {
   $panel.Dock = 'Fill'; $panel.FlowDirection = 'TopDown'; $panel.WrapContents = $false
   $panel.AutoScroll = $true
   $panel.AccessibleName = 'Accounts'
+  $panel.add_Resize({
+    $width = [Math]::Max(300, $this.ClientSize.Width - [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth - 12)
+    foreach ($control in $this.Controls) {
+      if ($control -is [System.Windows.Forms.Button]) { $control.Width = $width }
+      if ($control -is [System.Windows.Forms.Label]) { $control.MaximumSize = New-Object System.Drawing.Size($width, 0) }
+    }
+  })
   $script:PickerPanel = $panel
 
   $status = New-Object System.Windows.Forms.Label
@@ -813,7 +820,8 @@ function Update-PickerRows {
     $btn.Name = 'Account_' + $r.id
     $btn.AccessibleName = $r.display
     $btn.Tag = $r.id
-    $btn.Width = 440
+    $btn.UseMnemonic = $false
+    $btn.Width = [Math]::Max(300, $panel.ClientSize.Width - [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth - 12)
     $btn.Height = 46
     $btn.TextAlign = 'MiddleLeft'
     $btn.ImageAlign = 'MiddleLeft'
@@ -826,7 +834,7 @@ function Update-PickerRows {
     $btn.BackColor = [System.Drawing.Color]::White
     $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
     $btn.Margin = New-Object System.Windows.Forms.Padding(4, 3, 4, 3)
-    if ($isRunning) { $btn.ForeColor = [System.Drawing.Color]::FromArgb(16, 163, 127) }
+    if ($isRunning) { $btn.ForeColor = [System.Drawing.Color]::FromArgb(8, 122, 91) }
 
     $btn.add_Click({
       try {
@@ -872,6 +880,7 @@ function Update-PickerRows {
   $hint = New-Object System.Windows.Forms.Label
   $hint.Text = 'Right-click for options. Accounts have separate data and can run together.'
   $hint.AutoSize = $true
+  $hint.MaximumSize = New-Object System.Drawing.Size(([Math]::Max(300, $panel.ClientSize.Width - [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth - 12)), 0)
   $hint.ForeColor = [System.Drawing.Color]::DimGray
   $hint.Margin = New-Object System.Windows.Forms.Padding(6, 6, 4, 0)
   $panel.Controls.Add($hint)
@@ -910,7 +919,8 @@ function Start-Tray {
       try {
         $rows = @([pscustomobject]@{id=$script:MainId; display=$script:MainLabel; color='#10A37F'}) + @((Get-Config).accounts)
         foreach ($account in $rows) {
-          $item = $m.Items.Add($account.display + $(if ($running -contains $account.id) { '  - Running' } else { '' }))
+          $item = $m.Items.Add($account.display.Replace('&', '&&') + $(if ($running -contains $account.id) { '  - Running' } else { '' }))
+          $item.AccessibleName = $account.display
           $item.Tag = $account.id
           $item.Image = New-AvatarImage -Hex $account.color -Text $account.display.Substring(0, 1) -Size 20
           $item.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })

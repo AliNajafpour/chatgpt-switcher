@@ -26,6 +26,9 @@ $timer.add_Tick({
     Assert ($refresh.Count -eq 1) 'Picker needs a visible Refresh button'
     Assert $script:PickerPanel.AutoScroll 'Account list does not scroll'
     Assert ($script:PickerPanel.Height -le 520) 'Account list is not bounded'
+    $script:PickerForm.Width = $script:PickerForm.MinimumSize.Width
+    $script:PickerForm.PerformLayout(); $script:PickerPanel.PerformLayout()
+    Assert (-not $script:PickerPanel.HorizontalScroll.Visible) 'Narrow picker requires horizontal scrolling'
     $oldRow = $script:PickerPanel.Controls.Find('Account_p01', $false)[0]
     $oldImage = $oldRow.Image
     $script:TestRunning = @('p01')
