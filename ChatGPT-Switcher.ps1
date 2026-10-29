@@ -1,25 +1,13 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  ChatGPT アカウント切替ランチャー（Windows / 新ChatGPTデスクトップアプリ用）
-
+  Launch separate desktop app accounts on Windows.
 .DESCRIPTION
-  アカウントごとに独立したデータ領域（Electron の user-data と CODEX_HOME）を用意し、
-  ChatGPTデスクトップアプリを別プロセスとして起動します。複数アカウントの同時起動も可能。
-  既存のログイン（メイン）はそのまま残ります。
-
-  使い方:
-    ChatGPT-Switcher.ps1                  … 切替ウィンドウ（ピッカー）を表示
-    ChatGPT-Switcher.ps1 -Launch 仕事用    … 指定アカウントで起動（起動中なら前面に）
-    ChatGPT-Switcher.ps1 -Add 仕事用       … アカウント追加（デスクトップにショートカットも作成）
-    ChatGPT-Switcher.ps1 -Remove 仕事用    … アカウント削除（ローカルデータも削除）
-    ChatGPT-Switcher.ps1 -List            … アカウント一覧
-    ChatGPT-Switcher.ps1 -Setup           … ピッカーのショートカットをデスクトップ/スタートメニューに作成
-    ChatGPT-Switcher.ps1 -Tray            … タスクトレイに常駐（左クリック=ピッカー、右クリック=一覧）
-    ChatGPT-Switcher.ps1 -AutoStartTray   … トレイ常駐をWindows起動時に自動開始
-    ChatGPT-Switcher.ps1 -Diagnose        … 環境診断（アプリ検出・パス・起動状況）
-
-  データ保存先: %USERPROFILE%\ChatGPT-Accounts\<アカウントID>\{electron,codex}
+  Each account has separate Electron data and CODEX_HOME.
+  Run without arguments for the picker. Options: -Launch name, -Add name,
+  -Remove name, -List, -Setup, -Tray, -AutoStartTray, -Diagnose, -Version.
+  Removing an account deletes its local data, including local projects/chats.
+  Shared mode and online installation have been removed.
 #>
 param(
   [string]$Launch,
@@ -31,27 +19,24 @@ param(
   [switch]$AutoStartTray,
   [switch]$Diagnose,
   [switch]$NoShortcut,
-  [switch]$Version,
-  [switch]$Shared,
-  [string]$SaveAuth
+  [switch]$Version
 )
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:AppVersion = '1.2.0'
+$script:AppVersion = '1.3.0'
 $script:AppId      = 'Alyawmu.ChatGPTSwitcher'   # taskbar grouping + jump list identity
 $script:ScriptPath = $MyInvocation.MyCommand.Path
 $script:Root       = Join-Path $env:USERPROFILE 'ChatGPT-Accounts'
 $script:ConfigPath = Join-Path $script:Root 'accounts.json'
 $script:LogPath    = Join-Path $script:Root 'switcher.log'
 $script:MainId     = '__main__'
-$script:MainLabel  = 'メイン（元々ログインしているアカウント）'
+$script:MainLabel  = 'Main (existing login)'
 $script:Palette    = @('#4285F4','#34A853','#EA4335','#F9AB00','#A142F4','#F538A0','#12B5CB','#FF6D01')
 $script:AppCache   = $null
 $script:Gui        = $false
 
-# ------------------------------------------------------------------ 共通
 
 function Write-Log {
   param([string]$Message)
@@ -71,14 +56,13 @@ function Ensure-Gui {
 }
 
 function Get-DialogOwner {
-  # ピッカーが表示中ならそれを親にする（ダイアログが背面に隠れるのを防ぐ）
   $f = $script:PickerForm
   if ($f -and -not $f.IsDisposed -and $f.Visible) { return $f }
   return $null
 }
 
 function Show-Message {
-  param([string]$Text, [string]$Title = 'ChatGPT アカウント切替', [string]$Icon = 'Information')
+  param([string]$Text, [string]$Title = 'ChatGPT Account Switcher', [string]$Icon = 'Information')
   Ensure-Gui
   $owner = Get-DialogOwner
   if ($owner) { [void][System.Windows.Forms.MessageBox]::Show($owner, $Text, $Title, 'OK', $Icon) }
@@ -86,7 +70,7 @@ function Show-Message {
 }
 
 function Ask-YesNo {
-  param([string]$Text, [string]$Title = 'ChatGPT アカウント切替')
+  param([string]$Text, [string]$Title = 'ChatGPT Account Switcher')
   Ensure-Gui
   $owner = Get-DialogOwner
   if ($owner) { $r = [System.Windows.Forms.MessageBox]::Show($owner, $Text, $Title, 'YesNo', 'Question') }
@@ -95,8 +79,7 @@ function Ask-YesNo {
 }
 
 function Show-InputDialog {
-  # 自前の入力ダイアログ（VisualBasic の InputBox は親を持てず背面に隠れるため）
-  param([string]$Prompt, [string]$Title = 'ChatGPT アカウント切替', [string]$Default = '')
+  param([string]$Prompt, [string]$Title = 'ChatGPT Account Switcher', [string]$Default = '')
   Ensure-Gui
   $owner = Get-DialogOwner
 
@@ -109,7 +92,7 @@ function Show-InputDialog {
   $dlg.TopMost = $true
   $dlg.StartPosition = $(if ($owner) { 'CenterParent' } else { 'CenterScreen' })
   $dlg.ClientSize = New-Object System.Drawing.Size(420, 130)
-  $dlg.Font = New-Object System.Drawing.Font('Yu Gothic UI', 10)
+  $dlg.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 
   $lbl = New-Object System.Windows.Forms.Label
   $lbl.Text = $Prompt
@@ -129,7 +112,7 @@ function Show-InputDialog {
   $ok.DialogResult = 'OK'
 
   $cancel = New-Object System.Windows.Forms.Button
-  $cancel.Text = 'キャンセル'
+  $cancel.Text = 'Cancel'
   $cancel.Size = New-Object System.Drawing.Size(90, 30)
   $cancel.Location = New-Object System.Drawing.Point(316, 92)
   $cancel.DialogResult = 'Cancel'
@@ -156,13 +139,13 @@ function Get-SafeName {
   return $s
 }
 
-# ------------------------------------------------------------------ アプリ検出
 
 function Get-ChatGptApp {
-  if ($script:AppCache) { return $script:AppCache }
+  if ($script:AppCache -and $script:AppCache.Exe -and (Test-Path -LiteralPath $script:AppCache.Exe -PathType Leaf)) { return $script:AppCache }
+  $script:AppCache = $null
 
-  # Microsoft Store (MSIX) 版: OpenAI.Codex_2p2nqsd0c76g0  ※現在の「ChatGPT」デスクトップアプリ
   $pkg = $null
+  $storeApp = $null
   try {
     if ($PSVersionTable.PSEdition -eq 'Core') { Import-Module Appx -UseWindowsPowerShell -ErrorAction SilentlyContinue -WarningAction SilentlyContinue }
     $pkg = Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction SilentlyContinue |
@@ -172,11 +155,12 @@ function Get-ChatGptApp {
   if ($pkg) {
     $loc = $pkg.InstallLocation
     $exe = $null
-    foreach ($cand in @((Join-Path $loc 'ChatGPT.exe'), (Join-Path $loc 'app\ChatGPT.exe'), (Join-Path $loc 'Codex.exe'))) {
+    foreach ($cand in @((Join-Path $loc 'Codex.exe'), (Join-Path $loc 'app\Codex.exe'), (Join-Path $loc 'ChatGPT.exe'), (Join-Path $loc 'app\ChatGPT.exe'))) {
       if (Test-Path -LiteralPath $cand) { $exe = $cand; break }
     }
     if (-not $exe) {
-      $found = Get-ChildItem -LiteralPath $loc -Filter 'ChatGPT.exe' -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+      $found = Get-ChildItem -LiteralPath $loc -File -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -in @('Codex.exe', 'ChatGPT.exe') } | Select-Object -First 1
       if ($found) { $exe = $found.FullName }
     }
     $appId = $null
@@ -184,7 +168,7 @@ function Get-ChatGptApp {
       $manifest = Get-AppxPackageManifest -Package $pkg
       $appId = @($manifest.Package.Applications.Application)[0].Id
     } catch {}
-    $script:AppCache = [pscustomobject]@{
+    $storeApp = [pscustomobject]@{
       Kind              = 'Store'
       Exe               = $exe
       PackageFamilyName = $pkg.PackageFamilyName
@@ -192,13 +176,12 @@ function Get-ChatGptApp {
       Version           = $pkg.Version
       InstallLocation   = $loc
     }
-    return $script:AppCache
+    if ($exe) { $script:AppCache = $storeApp; return $script:AppCache }
   }
 
-  # 通常インストーラー版（念のため）
   foreach ($c in @(
-      (Join-Path $env:LOCALAPPDATA 'Programs\ChatGPT\ChatGPT.exe'),
       (Join-Path $env:LOCALAPPDATA 'Programs\Codex\Codex.exe'),
+      (Join-Path $env:LOCALAPPDATA 'Programs\ChatGPT\ChatGPT.exe'),
       (Join-Path $env:ProgramFiles 'ChatGPT\ChatGPT.exe'))) {
     if (Test-Path -LiteralPath $c) {
       $script:AppCache = [pscustomobject]@{
@@ -209,38 +192,75 @@ function Get-ChatGptApp {
       return $script:AppCache
     }
   }
+  if ($storeApp) { $script:AppCache = $storeApp; return $script:AppCache }
   return $null
 }
 
-# ------------------------------------------------------------------ 設定
 
 function Get-Config {
   $cfg = $null
+  $null = Get-AccountPaths '_config_check'
   if (Test-Path -LiteralPath $script:ConfigPath) {
     try {
       $raw = [System.IO.File]::ReadAllText($script:ConfigPath, [System.Text.Encoding]::UTF8)
       $cfg = $raw | ConvertFrom-Json
-    } catch { Write-Log "config read error: $_" }
+    } catch { throw "Cannot read accounts.json. Restore a valid backup before continuing. $_" }
+    if (-not $cfg -or -not ($cfg -is [pscustomobject]) -or
+        -not ($cfg.PSObject.Properties.Name -contains 'accounts')) {
+      throw 'Invalid accounts.json format. Restore a valid backup before continuing.'
+    }
   }
   if (-not $cfg) { $cfg = [pscustomobject]@{ accounts = @() } }
   if (-not ($cfg.PSObject.Properties.Name -contains 'accounts')) {
     $cfg | Add-Member -NotePropertyName accounts -NotePropertyValue @() -Force
   }
   $cfg.accounts = @($cfg.accounts | Where-Object { $_ -ne $null })
+  foreach ($account in $cfg.accounts) {
+    $null = Get-AccountPaths $account.id
+    if (-not ($account.display -is [string]) -or [string]::IsNullOrWhiteSpace($account.display) -or
+        -not ($account.color -is [string]) -or $account.color -notmatch '^#[0-9a-fA-F]{6}$') {
+      throw "Invalid name or color for profile $($account.id). Restore or correct accounts.json."
+    }
+  }
   return $cfg
 }
 
 function Save-Config {
   param($Config)
+  $null = Get-AccountPaths '_config_check'
   New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
   $Config.accounts = @($Config.accounts)
   $json = ConvertTo-Json -InputObject $Config -Depth 5
-  [System.IO.File]::WriteAllText($script:ConfigPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+  $tempPath = $script:ConfigPath + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+  try {
+    [IO.File]::WriteAllText($tempPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    if (Test-Path -LiteralPath $script:ConfigPath) {
+      [IO.File]::Replace($tempPath, $script:ConfigPath, ($script:ConfigPath + '.bak'))
+    } else { [IO.File]::Move($tempPath, $script:ConfigPath) }
+  } finally {
+    if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+  }
 }
 
 function Get-AccountPaths {
   param([string]$Id)
-  $base = Join-Path $script:Root $Id
+  if ([string]::IsNullOrWhiteSpace($Id) -or $Id -eq $script:MainId -or
+      $Id -in @('accounts.json', 'accounts.json.bak', 'accounts.lock', 'switcher.log') -or
+      $Id -match '[<>:"/\\|?*\x00-\x1f]' -or $Id -match '[. ]$' -or
+      $Id -match '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])($|\.)') {
+    throw 'Invalid account ID. Use a plain folder name, not a path or reserved Windows name.'
+  }
+  $root = [IO.Path]::GetFullPath($script:Root).TrimEnd('\')
+  $base = [IO.Path]::GetFullPath((Join-Path $root $Id))
+  if (-not $base.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Account path is outside the data folder.' }
+  foreach ($path in @($root, $base, (Join-Path $base 'electron'), (Join-Path $base 'codex'))) {
+    if (Test-Path -LiteralPath $path) {
+      $item = Get-Item -LiteralPath $path -Force
+      if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "Account paths must be ordinary directories: $path"
+      }
+    }
+  }
   return [pscustomobject]@{
     Base     = $base
     Electron = (Join-Path $base 'electron')
@@ -249,7 +269,7 @@ function Get-AccountPaths {
 }
 
 function Find-Account {
-  param([string]$Key)   # ID でも表示名でもOK
+  param([string]$Key)   # Accept an ID or display name.
   $cfg = Get-Config
   $acc = $cfg.accounts | Where-Object { $_.id -eq $Key } | Select-Object -First 1
   if (-not $acc) { $acc = $cfg.accounts | Where-Object { $_.display -eq $Key } | Select-Object -First 1 }
@@ -258,71 +278,97 @@ function Find-Account {
 }
 
 function Add-Account {
-  param([string]$Display, [switch]$SkipShortcut, [switch]$Shared)
-  $Display = $Display.Trim()
-  if ([string]::IsNullOrWhiteSpace($Display)) { throw 'アカウント名が空です。' }
-  $cfg = Get-Config
-  if ($cfg.accounts | Where-Object { $_.display -eq $Display }) { throw "「$Display」は既に登録されています。" }
-  $id = Get-SafeName $Display
-  $n = 2
-  while ($cfg.accounts | Where-Object { $_.id -eq $id }) { $id = (Get-SafeName $Display) + "_$n"; $n++ }
-  $color = $script:Palette[ $cfg.accounts.Count % $script:Palette.Count ]
-  $acc = [pscustomobject]@{
-    id      = $id
-    display = $Display
-    color   = $color
-    created = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-    mode    = $(if ($Shared) { 'shared' } else { 'isolated' })
-  }
-  $cfg.accounts = @($cfg.accounts) + @($acc)
-  Save-Config $cfg
-  $p = Get-AccountPaths $id
-  New-Item -ItemType Directory -Force -Path $p.Electron, $p.Codex | Out-Null
-  Write-Log "account added: $id ($Display)"
-  if (-not $SkipShortcut) { New-AccountShortcut -Account $acc | Out-Null }
-  Set-JumpList
-  return $acc
+  param([string]$Display, [switch]$SkipShortcut)
+  $null = Get-AccountPaths '_config_check'
+  New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
+  $lock = [IO.File]::Open((Join-Path $script:Root 'accounts.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try {
+    $Display = $Display.Trim()
+    if ([string]::IsNullOrWhiteSpace($Display)) { throw 'Account name cannot be empty.' }
+    $cfg = Get-Config
+    if ($cfg.accounts | Where-Object { $_.display -eq $Display }) { throw "Account $Display is already registered." }
+    $id = Get-SafeName $Display
+    $n = 2
+    while (($cfg.accounts | Where-Object { $_.id -eq $id }) -or (Test-Path -LiteralPath (Get-AccountPaths $id).Base)) {
+      $id = (Get-SafeName $Display) + "_$n"; $n++
+    }
+    $p = Get-AccountPaths $id
+    $color = $script:Palette[ $cfg.accounts.Count % $script:Palette.Count ]
+    $acc = [pscustomobject]@{
+      id      = $id
+      display = $Display
+      color   = $color
+      created = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+      mode    = 'isolated'
+    }
+    $cfg.accounts = @($cfg.accounts) + @($acc)
+    Save-Config $cfg
+    New-Item -ItemType Directory -Force -Path $p.Electron, $p.Codex | Out-Null
+    Write-Log "account added: $id ($Display)"
+    if (-not $SkipShortcut) { New-AccountShortcut -Account $acc | Out-Null }
+    Set-JumpList
+    return $acc
+  } finally { $lock.Dispose() }
 }
 
 function Remove-Account {
   param([string]$Key)
-  $acc = Find-Account $Key
-  if (-not $acc) { throw "アカウント「$Key」が見つかりません。" }
-  if ((Get-RunningAccountIds) -contains $acc.id) { throw "「$($acc.display)」のChatGPTが起動中です。先に終了してください。" }
-  $p = Get-AccountPaths $acc.id
-  if (Test-Path -LiteralPath $p.Base) { Remove-Item -LiteralPath $p.Base -Recurse -Force }
-  $cfg = Get-Config
-  $cfg.accounts = @($cfg.accounts | Where-Object { $_.id -ne $acc.id })
-  Save-Config $cfg
-  $lnk = Get-AccountShortcutPath $acc
-  if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force }
-  Write-Log "account removed: $($acc.id)"
-  Set-JumpList
+  $null = Get-AccountPaths '_config_check'
+  New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
+  $lock = [IO.File]::Open((Join-Path $script:Root 'accounts.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try {
+    $acc = Find-Account $Key
+    if (-not $acc) { throw "Account $Key was not found." }
+    if ((Get-RunningAccountIds) -contains $acc.id) { throw "ChatGPT is running for $($acc.display). Close it first." }
+    $p = Get-AccountPaths $acc.id
+    if (Test-Path -LiteralPath $p.Base) {
+      $links = Get-ChildItem -LiteralPath $p.Base -Recurse -Force -ErrorAction Stop |
+        Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }
+      if ($links) { throw 'Remove linked files/folders from this account before deleting it.' }
+      Remove-Item -LiteralPath $p.Base -Recurse -Force
+    }
+    $cfg = Get-Config
+    $cfg.accounts = @($cfg.accounts | Where-Object { $_.id -ne $acc.id })
+    Save-Config $cfg
+    $lnk = Get-AccountShortcutPath $acc
+    if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force }
+    Write-Log "account removed: $($acc.id)"
+    Set-JumpList
+  } finally { $lock.Dispose() }
 }
 
 function Rename-Account {
   param([string]$Key, [string]$NewDisplay)
-  $acc = Find-Account $Key
-  if (-not $acc) { throw "アカウント「$Key」が見つかりません。" }
-  $NewDisplay = $NewDisplay.Trim()
-  if ([string]::IsNullOrWhiteSpace($NewDisplay)) { return }
-  $old = Get-AccountShortcutPath $acc
-  $cfg = Get-Config
-  foreach ($a in $cfg.accounts) { if ($a.id -eq $acc.id) { $a.display = $NewDisplay } }
-  Save-Config $cfg
-  if (Test-Path -LiteralPath $old) {
-    Remove-Item -LiteralPath $old -Force
-    New-AccountShortcut -Account (Find-Account $acc.id) | Out-Null
-  }
-  Set-JumpList
+  $null = Get-AccountPaths '_config_check'
+  New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
+  $lock = [IO.File]::Open((Join-Path $script:Root 'accounts.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try {
+    $acc = Find-Account $Key
+    if (-not $acc) { throw "Account $Key was not found." }
+    $NewDisplay = $NewDisplay.Trim()
+    if ([string]::IsNullOrWhiteSpace($NewDisplay)) { return }
+    $old = Get-AccountShortcutPath $acc
+    $cfg = Get-Config
+    if ($cfg.accounts | Where-Object { $_.id -ne $acc.id -and $_.display -eq $NewDisplay }) { throw "Account $NewDisplay is already registered." }
+    foreach ($a in $cfg.accounts) { if ($a.id -eq $acc.id) { $a.display = $NewDisplay } }
+    Save-Config $cfg
+    if (Test-Path -LiteralPath $old) {
+      Remove-Item -LiteralPath $old -Force
+      New-AccountShortcut -Account (Find-Account $acc.id) | Out-Null
+    }
+    Set-JumpList
+  } finally { $lock.Dispose() }
 }
 
-# ------------------------------------------------------------------ 起動
 
 function Get-RunningAccountIds {
   $ids = @()
   $procs = @()
-  try { $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe' OR Name = 'Codex.exe'" -ErrorAction SilentlyContinue) } catch {}
+  try { $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe' OR Name = 'Codex.exe'" -ErrorAction Stop) }
+  catch { throw 'Cannot inspect running desktop processes. Account data will not be deleted. Check Windows permissions and try again.' }
+  if ($procs | Where-Object { [string]::IsNullOrWhiteSpace($_.CommandLine) }) {
+    throw 'A desktop process has an unreadable command line. Close its window before managing profiles.'
+  }
   if ($procs.Count -eq 0) { return $ids }
   $cfg = Get-Config
   foreach ($acc in $cfg.accounts) {
@@ -340,30 +386,39 @@ function Get-RunningAccountIds {
 function Start-Account {
   param([string]$Id)
   $app = Get-ChatGptApp
-  if (-not $app) { throw 'ChatGPTデスクトップアプリが見つかりません。Microsoft Store から「ChatGPT」をインストールしてください。' }
+  if (-not $app) { throw 'Desktop app was not found. Install the official desktop app first.' }
 
   if ($Id -eq $script:MainId) {
-    if ($app.Kind -eq 'Store' -and $app.AppId) {
-      Start-Process -FilePath 'explorer.exe' -ArgumentList ("shell:AppsFolder\{0}!{1}" -f $app.PackageFamilyName, $app.AppId)
-    } else {
-      Start-Process -FilePath $app.Exe
+    $previousHome = $env:CODEX_HOME
+    $previousElectron = $env:CODEX_ELECTRON_USER_DATA_PATH
+    try {
+      Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
+      Remove-Item Env:CODEX_ELECTRON_USER_DATA_PATH -ErrorAction SilentlyContinue
+      if ($app.Kind -eq 'Store' -and $app.AppId) {
+        Start-Process -FilePath 'explorer.exe' -ArgumentList ("shell:AppsFolder\{0}!{1}" -f $app.PackageFamilyName, $app.AppId)
+      } else {
+        Start-Process -FilePath $app.Exe
+      }
+    } finally {
+      $env:CODEX_HOME = $previousHome
+      $env:CODEX_ELECTRON_USER_DATA_PATH = $previousElectron
     }
     Write-Log 'launched: main'
     return
   }
 
   $acc = Find-Account $Id
-  if (-not $acc) { throw "アカウント「$Id」が登録されていません。" }
+  if (-not $acc) { throw "Account $Id is not registered." }
 
-  # 完全共有モード: 実の ~/.codex を使い、auth.json だけ差し替える（1アカウントずつ）
-  if ($acc.mode -eq 'shared') { Start-SharedAccount -Account $acc; return }
+  if ($acc.mode -eq 'shared') { throw 'Shared mode has been removed. Add a new isolated account and sign in there.' }
 
-  if (-not $app.Exe) { throw "ChatGPT.exe が見つかりません（$($app.InstallLocation)）。" }
+  if (-not $app.Exe) { throw "Desktop executable was not found in $($app.InstallLocation)." }
 
   $p = Get-AccountPaths $acc.id
   New-Item -ItemType Directory -Force -Path $p.Electron, $p.Codex | Out-Null
 
-  # アカウント分離の要: Electron のユーザーデータ (Cookie/ログイン) と Codex のホーム
+  $previousHome = $env:CODEX_HOME
+  $previousElectron = $env:CODEX_ELECTRON_USER_DATA_PATH
   $env:CODEX_HOME = $p.Codex
   $env:CODEX_ELECTRON_USER_DATA_PATH = $p.Electron
   $arg = '--user-data-dir="' + $p.Electron + '"'
@@ -377,103 +432,17 @@ function Start-Account {
       Invoke-CommandInDesktopPackage -PackageFamilyName $app.PackageFamilyName -AppId $app.AppId -Command $app.Exe -Args $arg -PreventBreakaway
       Write-Log "launched: $($acc.id) via Invoke-CommandInDesktopPackage"
     } else { throw }
+  } finally {
+    $env:CODEX_HOME = $previousHome
+    $env:CODEX_ELECTRON_USER_DATA_PATH = $previousElectron
   }
 }
 
-# ------------------------------------------------------------------ 完全共有モード（実 ~/.codex + auth.json 差し替え）
-
-function Get-RealCodexHome { return (Join-Path $env:USERPROFILE '.codex') }
-
-function Get-SharedAuthStore { param($Account) return (Join-Path (Get-AccountPaths $Account.id).Base 'shared-auth.json') }
-
-# 実ホーム(~/.codex)を使う ChatGPT.exe が動いているか（= --user-data-dir なし・--type= なし）
-function Test-RealHomeInstanceRunning {
-  try { $procs = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe'" -ErrorAction SilentlyContinue) } catch { return $false }
-  foreach ($pr in $procs) {
-    if ($pr.CommandLine -and ($pr.CommandLine -notmatch '--user-data-dir=') -and ($pr.CommandLine -notmatch '--type=')) { return $true }
-  }
-  return $false
-}
-
-function Get-ActiveShared {
-  $cfg = Get-Config
-  if ($cfg.PSObject.Properties.Name -contains 'activeShared') { return $cfg.activeShared }
-  return $null
-}
-function Set-ActiveShared {
-  param([string]$Id)
-  $cfg = Get-Config
-  $cfg | Add-Member -NotePropertyName activeShared -NotePropertyValue $Id -Force
-  Save-Config $cfg
-}
-
-# 現在の ~/.codex/auth.json を、指定アカウントの保存先に取り込む（ログイン後の保存にも使う）
-function Save-CurrentAuthToAccount {
-  param($Account)
-  $realAuth = Join-Path (Get-RealCodexHome) 'auth.json'
-  if (-not (Test-Path -LiteralPath $realAuth)) { throw "現在の ~/.codex\auth.json が見つかりません。先にChatGPTで一度ログインしてください。" }
-  $store = Get-SharedAuthStore $Account
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $store) | Out-Null
-  Copy-Item -LiteralPath $realAuth -Destination $store -Force
-  Set-ActiveShared $Account.id
-  Write-Log "shared: saved current auth as $($Account.id)"
-}
-
-function Start-SharedAccount {
-  param($Account)
-  $app  = Get-ChatGptApp
-  if (-not $app) { throw 'ChatGPTデスクトップアプリが見つかりません。' }
-  $real = Get-RealCodexHome
-  $realAuth = Join-Path $real 'auth.json'
-  New-Item -ItemType Directory -Force -Path $real, (Get-AccountPaths $Account.id).Base | Out-Null
-
-  if (Test-RealHomeInstanceRunning) {
-    throw "完全共有アカウントは1つずつです。今開いているChatGPTのウィンドウを閉じてから、もう一度切り替えてください。"
-  }
-
-  $active = Get-ActiveShared
-
-  if (Test-Path -LiteralPath $realAuth) {
-    # 必ずバックアップ（失敗時の復帰用）
-    Copy-Item -LiteralPath $realAuth -Destination (Join-Path $real 'auth.json.switcher-bak') -Force
-    # 直前にアクティブだった共有アカウントの保存先へ、現在のauth（ログイン更新）を取り込む
-    if ($active -and $active -ne $Account.id) {
-      $prev = Find-Account $active
-      if ($prev -and $prev.mode -eq 'shared') {
-        Copy-Item -LiteralPath $realAuth -Destination (Get-SharedAuthStore $prev) -Force
-        Write-Log "shared: captured current auth into $($prev.id)"
-      }
-    }
-  }
-
-  # ターゲットの保存authがあれば実ホームへ展開。無ければ現状のまま（初回：ログイン後に保存する）
-  $store = Get-SharedAuthStore $Account
-  if (Test-Path -LiteralPath $store) {
-    Copy-Item -LiteralPath $store -Destination $realAuth -Force
-    Write-Log "shared: restored auth for $($Account.id)"
-  } else {
-    Write-Log "shared: no saved auth for $($Account.id); launching with current login"
-  }
-  Set-ActiveShared $Account.id
-
-  # 実ホーム＝実Electronで通常起動（環境変数は上書きしない）
-  Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
-  Remove-Item Env:CODEX_ELECTRON_USER_DATA_PATH -ErrorAction SilentlyContinue
-  if ($app.Kind -eq 'Store' -and $app.AppId) {
-    Start-Process -FilePath 'explorer.exe' -ArgumentList ("shell:AppsFolder\{0}!{1}" -f $app.PackageFamilyName, $app.AppId)
-  } else {
-    Start-Process -FilePath $app.Exe
-  }
-  Write-Log "launched shared: $($Account.id)"
-}
-
-# ------------------------------------------------------------------ ショートカット
 
 function Get-PowerShellExe {
   return (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
 }
 
-# ------------------------------------------------------------------ ネイティブ（AppID / ジャンプリスト）
 
 function Ensure-Native {
   if ('CGS.Native' -as [type]) { return $true }
@@ -548,7 +517,6 @@ function Set-ShortcutAppId {
   try { if (Ensure-Native) { [CGS.Native]::SetShortcutAppId($LnkPath, $script:AppId) } } catch { Write-Log "SetShortcutAppId: $_" }
 }
 
-# 右クリック（ジャンプリスト）にアカウント一覧を出す
 function Set-JumpList {
   try {
     Set-ProcessAppId
@@ -560,23 +528,22 @@ function Set-JumpList {
     $jl.ShowFrequentCategory = $false
 
     $rows = @()
-    $rows += [pscustomobject]@{ id = $script:MainId; label = 'メイン' }
+    $rows += [pscustomobject]@{ id = $script:MainId; label = 'Main' }
     foreach ($a in (Get-Config).accounts) { $rows += [pscustomobject]@{ id = $a.id; label = $a.display } }
 
     foreach ($r in $rows) {
       $t = New-Object System.Windows.Shell.JumpTask
       $t.Title           = $r.label
-      $t.CustomCategory  = 'アカウント'
+      $t.CustomCategory  = 'Accounts'
       $t.ApplicationPath = $ps
       $t.Arguments       = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Launch "{1}"' -f $script:ScriptPath, $r.id)
       if ($icon) { $t.IconResourcePath = $icon }
-      $t.Description = ("ChatGPT を「{0}」で開く" -f $r.label)
+      $t.Description = ("Open ChatGPT as {0}" -f $r.label)
       $jl.JumpItems.Add($t)
     }
 
-    # 一覧ウィンドウを開くタスク
     $open = New-Object System.Windows.Shell.JumpTask
-    $open.Title = '切替ウィンドウを開く'
+    $open.Title = 'Open account picker'
     $open.ApplicationPath = $ps
     $open.Arguments = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $script:ScriptPath)
     if ($icon) { $open.IconResourcePath = $icon }
@@ -596,7 +563,7 @@ function New-Shortcut {
   $lnk.TargetPath = Get-PowerShellExe
   $lnk.Arguments = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" {1}' -f $script:ScriptPath, $Arguments)
   $lnk.WorkingDirectory = Split-Path -Parent $script:ScriptPath
-  $lnk.WindowStyle = 7   # 最小化で起動（コンソールのチラつき防止）
+  $lnk.WindowStyle = 7   # Minimize the console window.
   if ($IconPath -and (Test-Path -LiteralPath $IconPath)) { $lnk.IconLocation = "$IconPath,0" }
   if ($Description) { $lnk.Description = $Description }
   $lnk.Save()
@@ -611,14 +578,15 @@ function Get-AppIconPath {
 
 function Get-AccountShortcutPath {
   param($Account)
+  $null = Get-AccountPaths $Account.id
   $desktop = [Environment]::GetFolderPath('Desktop')
-  return (Join-Path $desktop ('ChatGPT - {0}.lnk' -f (Get-SafeName $Account.display)))
+  return (Join-Path $desktop ('ChatGPT - {0}.lnk' -f $Account.id))
 }
 
 function New-AccountShortcut {
   param($Account)
   $lnk = Get-AccountShortcutPath $Account
-  New-Shortcut -LnkPath $lnk -Arguments ('-Launch "{0}"' -f $Account.id) -IconPath (Get-AppIconPath) -Description ("ChatGPT を「{0}」で起動" -f $Account.display)
+  New-Shortcut -LnkPath $lnk -Arguments ('-Launch "{0}"' -f $Account.id) -IconPath (Get-AppIconPath) -Description ("Launch ChatGPT as {0}" -f $Account.display)
   Write-Log "shortcut created: $lnk"
   return $lnk
 }
@@ -626,12 +594,11 @@ function New-AccountShortcut {
 function New-PickerShortcuts {
   $icon = Get-AppIconPath
   $desktop = [Environment]::GetFolderPath('Desktop')
-  $programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'ChatGPT アカウント切替'
+  $programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'ChatGPT Account Switcher'
   $made = @()
-  $made += New-Shortcut -LnkPath (Join-Path $desktop 'ChatGPT アカウント切替.lnk') -Arguments '' -IconPath $icon -Description 'ChatGPT のアカウントを選んで起動'
-  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT アカウント切替.lnk') -Arguments '' -IconPath $icon -Description 'ChatGPT のアカウントを選んで起動'
-  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT 切替（トレイ常駐）.lnk') -Arguments '-Tray' -IconPath $icon -Description 'タスクトレイに常駐して右クリックで切替'
-  # ピン留めした切替アイコンを右クリック→アカウント一覧（ジャンプリスト）を出すための AppID を付与
+  $made += New-Shortcut -LnkPath (Join-Path $desktop 'ChatGPT Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch ChatGPT'
+  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch ChatGPT'
+  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT Switcher (tray).lnk') -Arguments '-Tray' -IconPath $icon -Description 'Run in the tray; right-click to switch accounts'
   foreach ($m in $made) { Set-ShortcutAppId -LnkPath $m }
   Set-JumpList
   return $made
@@ -639,10 +606,9 @@ function New-PickerShortcuts {
 
 function Install-TrayAutoStart {
   $startup = [Environment]::GetFolderPath('Startup')
-  return New-Shortcut -LnkPath (Join-Path $startup 'ChatGPT 切替（トレイ常駐）.lnk') -Arguments '-Tray' -IconPath (Get-AppIconPath) -Description 'ChatGPT アカウント切替（トレイ常駐）'
+  return New-Shortcut -LnkPath (Join-Path $startup 'ChatGPT Switcher (tray).lnk') -Arguments '-Tray' -IconPath (Get-AppIconPath) -Description 'ChatGPT Account Switcher (tray)'
 }
 
-# ------------------------------------------------------------------ GUI: ピッカー
 
 function New-AvatarImage {
   param([string]$Hex, [string]$Text, [int]$Size = 28)
@@ -654,7 +620,7 @@ function New-AvatarImage {
   $color = [System.Drawing.ColorTranslator]::FromHtml($Hex)
   $brush = New-Object System.Drawing.SolidBrush($color)
   $g.FillEllipse($brush, 0, 0, $Size - 1, $Size - 1)
-  $font = New-Object System.Drawing.Font('Yu Gothic UI', [float]($Size * 0.45), [System.Drawing.FontStyle]::Bold)
+  $font = New-Object System.Drawing.Font('Segoe UI', [float]($Size * 0.45), [System.Drawing.FontStyle]::Bold)
   $fmt = New-Object System.Drawing.StringFormat
   $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
   $rect = New-Object System.Drawing.RectangleF(0, 0, $Size, $Size)
@@ -665,24 +631,16 @@ function New-AvatarImage {
 
 function Invoke-AddAccountFlow {
   Ensure-Gui
-  $name = Show-InputDialog -Prompt 'アカウントの表示名を入力してください（例: 仕事用 / 個人 / 副業）' -Title 'アカウントを追加'
+  $name = Show-InputDialog -Prompt 'Enter an account name (for example, Work or Personal)' -Title 'Add account'
   if ([string]::IsNullOrWhiteSpace($name)) { return $null }
-  # モード選択: 分離（同時起動OK・各自のプロジェクト） / 完全共有（1つずつ・プロジェクト共有）
-  $shared = Ask-YesNo ("「{0}」のモードを選んでください。`n`n[はい] 完全共有モード:`n  Codexのプロジェクト/チャットを全アカウントで共有（公式風）。ただし1アカウントずつ（同時起動不可）。`n`n[いいえ] 分離モード:`n  アカウントごとに独立。同時起動OK。プロジェクトは別々。" -f $name) '完全共有モードにしますか？'
   try {
-    $acc = Add-Account -Display $name -Shared:$shared
+    $acc = Add-Account -Display $name
   } catch {
-    Show-Message $_.Exception.Message 'エラー' 'Error'
+    Show-Message $_.Exception.Message 'Error' 'Error'
     return $null
   }
-  if ($acc.mode -eq 'shared') {
-    if (Ask-YesNo ("「{0}」を完全共有で追加しました。`n`n今から起動してこのアカウントでログインしますか？`n（ログイン後、一覧の右クリック→「現在のログインをこのアカウントとして保存」を実行してください）" -f $acc.display)) {
-      try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
-    }
-  } else {
-    if (Ask-YesNo ("「{0}」を追加しました。デスクトップにショートカットも作りました。`n`n今すぐ起動してログインしますか？" -f $acc.display)) {
-      try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
-    }
+  if (Ask-YesNo ("Added {0} and created a desktop shortcut.`n`nLaunch now to sign in?" -f $acc.display)) {
+    try { Start-Account $acc.id } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
   }
   return $acc
 }
@@ -692,18 +650,17 @@ function Show-Picker {
   Set-JumpList
 
   $form = New-Object System.Windows.Forms.Form
-  $form.Text = 'ChatGPT アカウント切替'
+  $form.Text = 'ChatGPT Account Switcher'
   $form.StartPosition = 'CenterScreen'
   $form.FormBorderStyle = 'FixedDialog'
   $form.MaximizeBox = $false
   $form.MinimizeBox = $false
   $form.ShowInTaskbar = $true
   $form.KeyPreview = $true
-  # 常時最前面にはしない（入力ダイアログが裏に隠れる原因になる）。表示時に一度だけ前面へ。
   $form.add_Shown({ $this.Activate(); $this.TopMost = $true; $this.TopMost = $false; $this.BringToFront() })
   $form.AutoSize = $true
   $form.AutoSizeMode = 'GrowAndShrink'
-  $form.Font = New-Object System.Drawing.Font('Yu Gothic UI', 10)
+  $form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
   $form.BackColor = [System.Drawing.Color]::White
   $form.Padding = New-Object System.Windows.Forms.Padding(12)
   $iconPath = Get-AppIconPath
@@ -712,8 +669,8 @@ function Show-Picker {
   $script:PickerForm = $form
 
   $header = New-Object System.Windows.Forms.Label
-  $header.Text = 'どのアカウントで開く？'
-  $header.Font = New-Object System.Drawing.Font('Yu Gothic UI', 12, [System.Drawing.FontStyle]::Bold)
+  $header.Text = 'Choose an account'
+  $header.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
   $header.AutoSize = $true
   $header.Margin = New-Object System.Windows.Forms.Padding(4, 0, 4, 8)
 
@@ -730,24 +687,24 @@ function Show-Picker {
   $footer.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
 
   $btnAdd = New-Object System.Windows.Forms.Button
-  $btnAdd.Text = '＋ アカウントを追加'
+  $btnAdd.Text = '+ Add account'
   $btnAdd.AutoSize = $true
   $btnAdd.Height = 34
   $btnAdd.FlatStyle = 'System'
   $btnAdd.add_Click({ if (Invoke-AddAccountFlow) { Update-PickerRows } })
 
   $btnMenu = New-Object System.Windows.Forms.Button
-  $btnMenu.Text = '設定 ▾'
+  $btnMenu.Text = 'Settings'
   $btnMenu.AutoSize = $true
   $btnMenu.Height = 34
   $btnMenu.FlatStyle = 'System'
   $menu = New-Object System.Windows.Forms.ContextMenuStrip
-  [void]$menu.Items.Add('この切替ウィンドウのショートカットを作る（デスクトップ/スタート）', $null, { try { New-PickerShortcuts | Out-Null; Show-Message 'ショートカットを作成しました。' } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
-  [void]$menu.Items.Add('タスクトレイに常駐して使う（今すぐ開始）', $null, { Start-Process -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Tray' -f $script:ScriptPath) })
-  [void]$menu.Items.Add('トレイ常駐をWindows起動時に自動開始する', $null, { try { Install-TrayAutoStart | Out-Null; Show-Message 'スタートアップに登録しました。' } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
+  [void]$menu.Items.Add('Create picker shortcuts (Desktop and Start menu)', $null, { try { New-PickerShortcuts | Out-Null; Show-Message 'Shortcuts created.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
+  [void]$menu.Items.Add('Start tray mode', $null, { Start-Process -WindowStyle Hidden -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Tray' -f $script:ScriptPath) })
+  [void]$menu.Items.Add('Start tray mode when Windows starts', $null, { try { Install-TrayAutoStart | Out-Null; Show-Message 'Added to Windows startup.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
   [void]$menu.Items.Add('-')
-  [void]$menu.Items.Add('データフォルダを開く', $null, { New-Item -ItemType Directory -Force -Path $script:Root | Out-Null; Start-Process explorer.exe $script:Root })
-  [void]$menu.Items.Add('環境診断を表示', $null, { Start-Process -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Diagnose' -f $script:ScriptPath) })
+  [void]$menu.Items.Add('Open data folder', $null, { New-Item -ItemType Directory -Force -Path $script:Root | Out-Null; Start-Process explorer.exe $script:Root })
+  [void]$menu.Items.Add('Show diagnostics', $null, { Start-Process -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Diagnose' -f $script:ScriptPath) })
   $btnMenu.add_Click({ $menu.Show($btnMenu, (New-Object System.Drawing.Point(0, $btnMenu.Height))) })
 
   $footer.Controls.Add($btnAdd)
@@ -787,8 +744,8 @@ function Update-PickerRows {
   foreach ($r in $rows) {
     $btn = New-Object System.Windows.Forms.Button
     $isRunning = ($running -contains $r.id)
-    $badge = $(if ($r.mode -eq 'shared') { '  〔共有〕' } else { '' })
-    $btn.Text = '   ' + $r.display + $badge + $(if ($isRunning) { '   ● 起動中' } else { '' })
+    $badge = $(if ($r.mode -eq 'shared') { '  [Shared - disabled]' } else { '' })
+    $btn.Text = '   ' + $r.display + $badge + $(if ($isRunning) { '   ● Running' } else { '' })
     $btn.Tag = $r.id
     $btn.Width = 400
     $btn.Height = 46
@@ -809,39 +766,28 @@ function Update-PickerRows {
       try {
         Start-Account $this.Tag
         $script:PickerForm.Close()
-      } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+      } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
     })
 
     if ($r.id -ne $script:MainId) {
       $cm = New-Object System.Windows.Forms.ContextMenuStrip
       $cm.Tag = $r.id
-      if ($r.mode -eq 'shared') {
-        $miSave = $cm.Items.Add('現在のログインをこのアカウントとして保存')
-        $miSave.Tag = $r.id
-        $miSave.add_Click({
-          $acc = Find-Account $this.Tag
-          if (Ask-YesNo ("今 ~/.codex にログイン中のアカウントを「{0}」として保存します。よろしいですか？" -f $acc.display)) {
-            try { Save-CurrentAuthToAccount $acc; Show-Message ("「{0}」として現在のログインを保存しました。" -f $acc.display) } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
-          }
-        })
-        [void]$cm.Items.Add('-')
-      }
-      $mi1 = $cm.Items.Add('デスクトップにショートカットを作る')
+      $mi1 = $cm.Items.Add('Create desktop shortcut')
       $mi1.Tag = $r.id
-      $mi1.add_Click({ try { New-AccountShortcut -Account (Find-Account $this.Tag) | Out-Null; Show-Message 'デスクトップにショートカットを作成しました。' } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
-      $mi2 = $cm.Items.Add('名前を変更')
+      $mi1.add_Click({ try { New-AccountShortcut -Account (Find-Account $this.Tag) | Out-Null; Show-Message 'Desktop shortcut created.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
+      $mi2 = $cm.Items.Add('Rename')
       $mi2.Tag = $r.id
       $mi2.add_Click({
         $acc = Find-Account $this.Tag
-        $n = Show-InputDialog -Prompt '新しい表示名を入力してください' -Title '名前を変更' -Default $acc.display
-        if (-not [string]::IsNullOrWhiteSpace($n)) { try { Rename-Account $this.Tag $n; Update-PickerRows } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } }
+        $n = Show-InputDialog -Prompt 'Enter a new display name' -Title 'Rename' -Default $acc.display
+        if (-not [string]::IsNullOrWhiteSpace($n)) { try { Rename-Account $this.Tag $n; Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' } }
       })
-      $mi3 = $cm.Items.Add('このアカウントを削除…')
+      $mi3 = $cm.Items.Add('Delete this account...')
       $mi3.Tag = $r.id
       $mi3.add_Click({
         $acc = Find-Account $this.Tag
-        if (Ask-YesNo ("「{0}」を削除しますか？`nこのPC上のログイン情報とキャッシュが消えます（ChatGPT側のアカウントや履歴は消えません）。" -f $acc.display)) {
-          try { Remove-Account $this.Tag; Update-PickerRows } catch { Show-Message $_.Exception.Message 'エラー' 'Error' }
+        if (Ask-YesNo ("Delete {0}?`nLocal sign-in data, settings and local projects/chats for this profile will be deleted. The online account is not deleted." -f $acc.display)) {
+          try { Remove-Account $this.Tag; Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
         }
       })
       $btn.ContextMenuStrip = $cm
@@ -850,17 +796,16 @@ function Update-PickerRows {
   }
 
   $hint = New-Object System.Windows.Forms.Label
-  $hint.Text = '右クリックで各種操作。〔共有〕=プロジェクト共有(1つずつ)。それ以外は分離(同時起動可)。'
+  $hint.Text = 'Right-click for options. Accounts have separate data and can run together.'
   $hint.AutoSize = $true
   $hint.ForeColor = [System.Drawing.Color]::Gray
-  $hint.Font = New-Object System.Drawing.Font('Yu Gothic UI', 8.5)
+  $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
   $hint.Margin = New-Object System.Windows.Forms.Padding(6, 6, 4, 0)
   $panel.Controls.Add($hint)
 
   $panel.ResumeLayout()
 }
 
-# ------------------------------------------------------------------ GUI: トレイ常駐
 
 function Start-Tray {
   Ensure-Gui
@@ -869,33 +814,33 @@ function Start-Tray {
   $iconPath = Get-AppIconPath
   $ni.Icon = [System.Drawing.SystemIcons]::Application
   if ($iconPath) { try { $ni.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath) } catch {} }
-  $ni.Text = 'ChatGPT アカウント切替'
+  $ni.Text = 'ChatGPT Account Switcher'
   $menu = New-Object System.Windows.Forms.ContextMenuStrip
-  $menu.Font = New-Object System.Drawing.Font('Yu Gothic UI', 10)
+  $menu.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 
   $menu.add_Opening({
     $m = $this
     $m.Items.Clear()
     $running = Get-RunningAccountIds
-    $head = $m.Items.Add('ChatGPT を開く:')
+    $head = $m.Items.Add('Open ChatGPT:')
     $head.Enabled = $false
-    $mainItem = $m.Items.Add($script:MainLabel + $(if ($running -contains $script:MainId) { '  ● 起動中' } else { '' }))
+    $mainItem = $m.Items.Add($script:MainLabel + $(if ($running -contains $script:MainId) { '  ● Running' } else { '' }))
     $mainItem.Tag = $script:MainId
     $mainItem.Image = New-AvatarImage -Hex '#10A37F' -Text 'M' -Size 20
-    $mainItem.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
+    $mainItem.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
     foreach ($a in (Get-Config).accounts) {
-      $it = $m.Items.Add($a.display + $(if ($running -contains $a.id) { '  ● 起動中' } else { '' }))
+      $it = $m.Items.Add($a.display + $(if ($running -contains $a.id) { '  ● Running' } else { '' }))
       $it.Tag = $a.id
       $it.Image = New-AvatarImage -Hex $a.color -Text $a.display.Substring(0, 1) -Size 20
-      $it.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'エラー' 'Error' } })
+      $it.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
     }
     [void]$m.Items.Add('-')
-    $add = $m.Items.Add('＋ アカウントを追加')
+    $add = $m.Items.Add('+ Add account')
     $add.add_Click({ Invoke-AddAccountFlow | Out-Null })
-    $pick = $m.Items.Add('切替ウィンドウを開く')
+    $pick = $m.Items.Add('Open account picker')
     $pick.add_Click({ Show-Picker })
     [void]$m.Items.Add('-')
-    $quit = $m.Items.Add('常駐を終了')
+    $quit = $m.Items.Add('Exit tray mode')
     $quit.add_Click({ [System.Windows.Forms.Application]::Exit() })
   })
 
@@ -911,64 +856,56 @@ function Start-Tray {
   }
 }
 
-# ------------------------------------------------------------------ 診断
 
 function Show-Diagnose {
-  Write-Host '=== ChatGPT アカウント切替 環境診断 ===' -ForegroundColor Cyan
-  Write-Host ("バージョン   : {0}" -f $script:AppVersion)
-  Write-Host ("スクリプト   : {0}" -f $script:ScriptPath)
-  Write-Host ("データ保存先 : {0}" -f $script:Root)
+  Write-Host '=== ChatGPT Account Switcher diagnostics ===' -ForegroundColor Cyan
+  Write-Host ("Version      : {0}" -f $script:AppVersion)
+  Write-Host ("Script       : {0}" -f $script:ScriptPath)
+  Write-Host ("Data folder  : {0}" -f $script:Root)
   Write-Host ("PowerShell   : {0}" -f $PSVersionTable.PSVersion)
   Write-Host ("OS           : {0}" -f [Environment]::OSVersion.VersionString)
   Write-Host ''
   $app = Get-ChatGptApp
   if (-not $app) {
-    Write-Host 'ChatGPTデスクトップアプリ: 見つかりません（Store の OpenAI.Codex / 通常インストール版のどちらも）' -ForegroundColor Red
+    Write-Host 'Desktop app: not found (Store or standalone installation)' -ForegroundColor Red
   } else {
-    Write-Host 'ChatGPTデスクトップアプリ:' -ForegroundColor Green
-    Write-Host ("  種別      : {0}" -f $app.Kind)
-    Write-Host ("  バージョン: {0}" -f $app.Version)
-    Write-Host ("  場所      : {0}" -f $app.InstallLocation)
-    Write-Host ("  EXE       : {0}" -f $(if ($app.Exe) { $app.Exe } else { '(見つからず)' }))
+    Write-Host 'Desktop app:' -ForegroundColor Green
+    Write-Host ("  Kind      : {0}" -f $app.Kind)
+    Write-Host ("  Version   : {0}" -f $app.Version)
+    Write-Host ("  Location  : {0}" -f $app.InstallLocation)
+    Write-Host ("  EXE       : {0}" -f $(if ($app.Exe) { $app.Exe } else { '(not found)' }))
     Write-Host ("  PFN       : {0}" -f $app.PackageFamilyName)
     Write-Host ("  AppId     : {0}" -f $app.AppId)
     if ($app.Exe) {
-      try { $null = [System.IO.File]::OpenRead($app.Exe).Dispose(); Write-Host '  EXE 読み取り: OK' } catch { Write-Host "  EXE 読み取り: NG ($_)" -ForegroundColor Yellow }
+      try { $null = [System.IO.File]::OpenRead($app.Exe).Dispose(); Write-Host '  EXE readable: OK' } catch { Write-Host "  EXE readable: FAILED ($_)" -ForegroundColor Yellow }
     }
   }
   Write-Host ''
-  Write-Host ("標準の CODEX_HOME  : {0}  (存在: {1})" -f (Join-Path $env:USERPROFILE '.codex'), (Test-Path (Join-Path $env:USERPROFILE '.codex')))
+  Write-Host ("Default CODEX_HOME  : {0}  (exists: {1})" -f (Join-Path $env:USERPROFILE '.codex'), (Test-Path (Join-Path $env:USERPROFILE '.codex')))
   $stock = Join-Path $env:LOCALAPPDATA 'Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Roaming\Codex'
-  Write-Host ("標準の Electron data: {0}  (存在: {1})" -f $stock, (Test-Path $stock))
+  Write-Host ("Default Electron data: {0}  (exists: {1})" -f $stock, (Test-Path $stock))
   Write-Host ''
   $running = Get-RunningAccountIds
   $cfg = Get-Config
-  $active = Get-ActiveShared
-  Write-Host ("登録アカウント: {0} 件   完全共有アクティブ: {1}" -f $cfg.accounts.Count, $(if ($active) { $active } else { '(なし)' })) -ForegroundColor Cyan
-  Write-Host ("  [main] {0}{1}" -f $script:MainLabel, $(if ($running -contains $script:MainId) { '  ● 起動中' } else { '' }))
+  Write-Host ("Registered accounts: {0}" -f $cfg.accounts.Count) -ForegroundColor Cyan
+  Write-Host ("  [main] {0}{1}" -f $script:MainLabel, $(if ($running -contains $script:MainId) { '  ● Running' } else { '' }))
   foreach ($a in $cfg.accounts) {
     $p = Get-AccountPaths $a.id
     $m = if ($a.PSObject.Properties.Name -contains 'mode') { $a.mode } else { 'isolated' }
-    Write-Host ("  [{0}] {1}  <{2}>{3}" -f $a.id, $a.display, $m, $(if ($running -contains $a.id) { '  ● 起動中' } else { '' }))
-    if ($m -eq 'shared') {
-      $store = Get-SharedAuthStore $a
-      Write-Host ("      shared-auth: {0}  (保存済: {1})" -f $store, (Test-Path $store))
-    } else {
-      Write-Host ("      electron: {0}" -f $p.Electron)
-      Write-Host ("      codex   : {0}" -f $p.Codex)
-    }
+    Write-Host ("  [{0}] {1}  <{2}>{3}" -f $a.id, $a.display, $m, $(if ($running -contains $a.id) { '  ● Running' } else { '' }))
+    Write-Host ("      electron: {0}" -f $p.Electron)
+    Write-Host ("      codex   : {0}" -f $p.Codex)
   }
   Write-Host ''
-  Write-Host 'ChatGPT.exe プロセス:' -ForegroundColor Cyan
+  Write-Host 'ChatGPT / Codex processes:' -ForegroundColor Cyan
   try {
-    Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
+    Get-CimInstance Win32_Process -Filter "Name = 'ChatGPT.exe' OR Name = 'Codex.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
       ForEach-Object { Write-Host ("  PID {0}: {1}" -f $_.ProcessId, $_.CommandLine) }
-  } catch { Write-Host "  (取得失敗: $_)" }
+  } catch { Write-Host "  (query failed: $_)" }
   Write-Host ''
-  Write-Host ("ログ: {0}" -f $script:LogPath)
+  Write-Host ("Log: {0}" -f $script:LogPath)
 }
 
-# ------------------------------------------------------------------ エントリ
 
 try {
   if ($Version) { Write-Host ("ChatGPT-Switcher {0}" -f $script:AppVersion); return }
@@ -978,45 +915,32 @@ try {
   if ($List) {
     $running = Get-RunningAccountIds
     $cfg = Get-Config
-    Write-Host ("[{0}] {1}{2}" -f $script:MainId, $script:MainLabel, $(if ($running -contains $script:MainId) { '  (起動中)' } else { '' }))
+    Write-Host ("[{0}] {1}{2}" -f $script:MainId, $script:MainLabel, $(if ($running -contains $script:MainId) { '  (Running)' } else { '' }))
     foreach ($a in $cfg.accounts) {
-      Write-Host ("[{0}] {1}{2}" -f $a.id, $a.display, $(if ($running -contains $a.id) { '  (起動中)' } else { '' }))
+      Write-Host ("[{0}] {1}{2}" -f $a.id, $a.display, $(if ($running -contains $a.id) { '  (Running)' } else { '' }))
     }
     return
   }
 
   if ($Add) {
-    $acc = Add-Account -Display $Add -SkipShortcut:$NoShortcut -Shared:$Shared
-    Write-Host ("追加しました: [{0}] {1}{2}" -f $acc.id, $acc.display, $(if ($acc.mode -eq 'shared') { ' (完全共有)' } else { '' }))
-    Write-Host ("起動: ChatGPT-Switcher.ps1 -Launch {0}" -f $acc.id)
-    if ($acc.mode -eq 'shared') {
-      Write-Host "完全共有: 初回はこのアカウントでログイン後、次を実行して現在のログインを保存してください:"
-      Write-Host ("  ChatGPT-Switcher.ps1 -SaveAuth {0}" -f $acc.id)
-    }
+    $acc = Add-Account -Display $Add -SkipShortcut:$NoShortcut
+    Write-Host ("Added: [{0}] {1}" -f $acc.id, $acc.display)
+    Write-Host ("Launch: ChatGPT-Switcher.ps1 -Launch {0}" -f $acc.id)
     return
   }
 
-  if ($SaveAuth) {
-    $acc = Find-Account $SaveAuth
-    if (-not $acc) { throw "アカウント「$SaveAuth」が見つかりません。" }
-    if ($acc.mode -ne 'shared') { throw "「$($acc.display)」は完全共有アカウントではありません。" }
-    Save-CurrentAuthToAccount $acc
-    Write-Host ("現在のログインを「{0}」として保存しました。" -f $acc.display)
-    return
-  }
-
-  if ($Remove) { Remove-Account $Remove; Write-Host "削除しました: $Remove"; return }
+  if ($Remove) { Remove-Account $Remove; Write-Host "Removed: $Remove"; return }
 
   if ($Setup) {
     $made = New-PickerShortcuts
-    $made | ForEach-Object { Write-Host "作成: $_" }
-    $msg = "ショートカットを作成しました:`n" + ($made -join "`n") + "`n`nタスクバーに固定するには:`nスタートメニューの「ChatGPT アカウント切替」を右クリック →「タスクバーにピン留めする」。`nピン留め後、そのアイコンを右クリックすると各アカウントが並びます（ジャンプリスト）。"
+    $made | ForEach-Object { Write-Host "Created: $_" }
+    $msg = "Shortcuts created:`n" + ($made -join "`n") + "`n`nTo pin to the taskbar, right-click ChatGPT Account Switcher in Start and choose Pin to taskbar.`nRight-click the pinned icon to see your accounts."
     Write-Host $msg
     if (-not $NoShortcut) { Show-Message $msg }
     return
   }
 
-  if ($AutoStartTray) { $lnk = Install-TrayAutoStart; Write-Host "スタートアップに登録: $lnk"; return }
+  if ($AutoStartTray) { $lnk = Install-TrayAutoStart; Write-Host "Added to startup: $lnk"; return }
 
   if ($Tray) { Start-Tray; return }
 
@@ -1026,9 +950,9 @@ try {
 } catch {
   Write-Log ("ERROR: {0}`n{1}" -f $_.Exception.Message, $_.ScriptStackTrace)
   if ($Diagnose -or $List -or $Add -or $Remove) {
-    Write-Host ("エラー: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    Write-Host ("Error: {0}" -f $_.Exception.Message) -ForegroundColor Red
     exit 1
   }
-  Show-Message ("エラー: {0}`n`n詳細ログ: {1}" -f $_.Exception.Message, $script:LogPath) 'ChatGPT アカウント切替' 'Error'
+  Show-Message ("Error: {0}`n`nDetails log: {1}" -f $_.Exception.Message, $script:LogPath) 'ChatGPT Account Switcher' 'Error'
   exit 1
 }

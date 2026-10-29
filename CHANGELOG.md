@@ -3,19 +3,46 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.3.0] - 2026-10-29
+
+### Changed
+- English UI, CLI help, diagnostics and shortcut labels; Segoe UI font.
+- Isolated profiles only. Legacy shared entries fail before launch and remain available for deliberate removal.
+- Profile shortcuts use stable IDs rather than sanitized display names.
+
+### Fixed
+- Validate profile paths, reserved control-file names and ordinary directories before writes or recursive deletion.
+- Reject linked profile paths and nested links during removal.
+- New profiles skip existing unregistered data folders instead of reusing their login.
+- Serialize profile changes with an exclusive per-data-folder file lock.
+- Write config atomically with a previous-version backup; reject corrupt config rather than silently resetting it.
+- Restore launcher environment after profile launches. Clear inherited profile variables for Main.
+- Block profile management when desktop process inspection fails or command lines cannot be read.
+- Detect app/Codex.exe, fall back to a standalone installation when the Store executable is unavailable, and refresh missing cached executables.
+- Reject duplicate names on rename and invalid display/color fields in config.
+
+### Removed
+- Shared-auth switching and its CLI flags.
+- Network installer and obsolete repository-publishing utilities.
+- Outdated Japanese README that described removed functionality.
+
+### Validation
+- Added dependency-free self-check.ps1 for Windows PowerShell 5.1 and PowerShell 7.
+- Real multi-account login and GUI integration remain unverified. Junction checks skip if Windows denies junction creation.
+
 ## [1.2.0] - 2026-09-17
 
 ### Added
-- **Full-share mode (official-like)**: an account can share the real `~/.codex` (projects, chats, config) with every other shared account — only `auth.json` is swapped when you switch. Add with `-Add <name> -Shared`, or pick "完全共有" in the picker. Trade-off: one shared account at a time (no simultaneous run), because two processes on one `~/.codex` / `state_*.sqlite` would corrupt it, and current Codex Desktop rejects a symlinked session store.
+- **Full-share mode (removed in 1.3.0)**: an account could share the real `~/.codex` (projects, chats, config) with every other shared account. Only `auth.json` was swapped. This historical mode required one shared account at a time.
   - `auth.json` is backed up to `~/.codex/auth.json.switcher-bak` on every switch; a failed swap is recoverable by re-login (projects/chats are never touched).
-  - First run of a shared account: log in, then right-click it → "現在のログインをこのアカウントとして保存" (or `-SaveAuth <id>`).
-- Picker shows a 〔共有〕 badge for shared accounts; `-Diagnose` reports each account's mode and the active shared account.
+  - First run required saving the current login with `-SaveAuth <id>`.
+- Picker showed a shared badge; diagnostics reported each account's mode and the active shared account.
 - Isolated mode (the original) is unchanged and remains the default: full isolation, simultaneous windows.
 
 ## [1.1.0] - 2026-09-17
 
 ### Added
-- **Jump list**: pin the switcher to the taskbar, then right-click it to launch any account directly (`アカウント` category). Built with a private AppUserModelID and the managed `System.Windows.Shell.JumpList`; the switcher's taskbar button now groups under that pinned icon.
+- **Jump list**: pin the switcher to the taskbar, then right-click it to launch any account directly. Built with a private AppUserModelID and the managed `System.Windows.Shell.JumpList`; the switcher's taskbar button groups under that pinned icon.
 - `-Setup` now stamps the shortcut's AppUserModelID and refreshes the jump list, and prints taskbar-pin instructions.
 
 ### Fixed

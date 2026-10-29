@@ -12,3 +12,6 @@ Thumbs.db
 desktop.ini
 .DS_Store
 .vscode/
+work/
+outputs/
+.self-check-*/

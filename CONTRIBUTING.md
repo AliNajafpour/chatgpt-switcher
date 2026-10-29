@@ -12,6 +12,15 @@ Thanks for your interest! This is a small, single-file tool and the goal is to k
 
 There's no build step. Edit `ChatGPT-Switcher.ps1` and run it.
 
+Run the regression check without installing anything:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\self-check.ps1
+pwsh.exe -NoProfile -File .\self-check.ps1
+```
+
+The check uses synthetic data and never signs into a real account. A skipped junction check must be reported separately from passing checks. Real Store/standalone launches and GUI flows still need manual testing before a release.
+
 Syntax check without executing:
 
 ```powershell
