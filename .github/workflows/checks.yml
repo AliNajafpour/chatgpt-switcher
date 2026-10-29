@@ -20,11 +20,17 @@ jobs:
         with:
           persist-credentials: false
       - name: Core self-check
-        shell: ${{ matrix.shell }}
-        run: ./self-check.ps1
+        shell: pwsh
+        run: |
+          & '${{ matrix.shell }}' -NoProfile -ExecutionPolicy Bypass -STA -File ./self-check.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: CLI self-check
-        shell: ${{ matrix.shell }}
-        run: ./cli-self-check.ps1
+        shell: pwsh
+        run: |
+          & '${{ matrix.shell }}' -NoProfile -ExecutionPolicy Bypass -STA -File ./cli-self-check.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: UI self-check
-        shell: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -STA -File {0}
-        run: ./ui-self-check.ps1
+        shell: pwsh
+        run: |
+          & '${{ matrix.shell }}' -NoProfile -ExecutionPolicy Bypass -STA -File ./ui-self-check.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
