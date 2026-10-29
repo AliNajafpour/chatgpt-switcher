@@ -4,6 +4,14 @@ What this repo does: it launches the installed desktop app with separate Electro
 
 Reviewed against upstream commit `497bc55` on 2026-10-29. This review covers every supplied script and launcher, configuration flow, profile creation/rename/deletion, launch environment, app discovery, shortcut generation, tray/picker events and documentation. An independent read-only reviewer checked the security fixes.
 
+## Status after version 1.4.0
+
+Follow-ups 2 through 9 below have been implemented: synchronous CLI, native resource cleanup, a single tray instance, Refresh/F5, scrolling, Windows CI, startup disable/migration and keep-data removal. They remain below as the original review record. The README describes current behavior.
+
+Additional review caught invalid command combinations being checked after early writes and invalid tray combinations opening modal errors. Both are fixed and regression-tested. CMD metacharacter interpretation occurs before the wrapper executes; direct PowerShell invocation is documented for arbitrary names.
+
+The repository is now standalone on GitHub. No new runtime dependency or application framework was introduced. Remaining work is real signed-in account/persistence verification, high-DPI/accessibility checks, and share-safe diagnostics. Core, CLI and synthetic UI checks pass locally under both PowerShell engines; junction creation is skipped when Windows denies it.
+
 ## Problems fixed in this update
 
 | Trigger | Original result | Change |
@@ -37,7 +45,7 @@ The runtime interface, help, errors, diagnostics and new shortcut labels are Eng
    - Fix: test two disposable accounts plus Main on a real installed app, from both a normal terminal and a Codex terminal. Check distinct sign-ins after restart, data separation, an app update, and launch failure. Record Windows, PowerShell and app versions. Never collect real authentication files in test artifacts.
    - If skipped: source-level checks can pass while the installed app still opens the wrong window or profile.
 
-## Should fix next
+## Original follow-ups, implemented in 1.4.0
 
 2. **Command-line operations hide their result** (`ChatGPT-Switcher.cmd`).
    - What this is: only List and Diagnose run in a visible console; other flags use an asynchronous hidden process.
@@ -75,7 +83,7 @@ The runtime interface, help, errors, diagnostics and new shortcut labels are Eng
    - Fix: a small Windows workflow that runs the same self-check in Windows PowerShell 5.1 and PowerShell 7. Report junction skips explicitly; do not count them as coverage.
    - If skipped: a later cleanup can reintroduce the security and isolation mistakes fixed here.
 
-## Nice to have
+## Original additional improvements
 
 8. **Give startup an off switch** (`Install-TrayAutoStart`, Settings).
    - What this is: the UI can enable startup, but disabling it requires deleting a shortcut manually.
@@ -97,7 +105,7 @@ The runtime interface, help, errors, diagnostics and new shortcut labels are Eng
 
 ## Recommended order
 
-First verify real two-account isolation, fix command-line feedback, and add Windows CI. Next improve tray lifetime, drawing cleanup and running-state refresh. Finally improve the account list, startup controls, deletion recovery and safe diagnostics.
+Next verify real two-account sign-in and restart persistence, then add share-safe diagnostics. The CLI, CI, tray, refresh, scrolling, startup and keep-data changes are implemented. Keep-data removal preserves files but is not an automatic restore/import facility.
 
 Keep the plain PowerShell/Windows UI and reuse the installed desktop app. A web frontend, bundled browser, credential scraper or new framework would add maintenance without solving these problems. Rename branding only after deciding how existing shortcuts and startup entries should migrate.
 

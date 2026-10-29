@@ -9,14 +9,17 @@
   Removing an account deletes its local data, including local projects/chats.
   Shared mode and online installation have been removed.
 #>
+[CmdletBinding()]
 param(
-  [string]$Launch,
-  [string]$Add,
-  [string]$Remove,
+  [ValidateNotNullOrEmpty()][string]$Launch,
+  [ValidateNotNullOrEmpty()][string]$Add,
+  [ValidateNotNullOrEmpty()][string]$Remove,
   [switch]$List,
   [switch]$Setup,
   [switch]$Tray,
   [switch]$AutoStartTray,
+  [switch]$NoAutoStartTray,
+  [switch]$KeepData,
   [switch]$Diagnose,
   [switch]$NoShortcut,
   [switch]$Version
@@ -25,7 +28,8 @@ param(
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:AppVersion = '1.3.0'
+$script:AppVersion = '1.4.0'
+$script:TrayMutexName = 'Local\CodexAccountSwitcher.Tray.' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $script:AppId      = 'Alyawmu.ChatGPTSwitcher'   # taskbar grouping + jump list identity
 $script:ScriptPath = $MyInvocation.MyCommand.Path
 $script:Root       = Join-Path $env:USERPROFILE 'ChatGPT-Accounts'
@@ -62,7 +66,7 @@ function Get-DialogOwner {
 }
 
 function Show-Message {
-  param([string]$Text, [string]$Title = 'ChatGPT Account Switcher', [string]$Icon = 'Information')
+  param([string]$Text, [string]$Title = 'Codex Account Switcher', [string]$Icon = 'Information')
   Ensure-Gui
   $owner = Get-DialogOwner
   if ($owner) { [void][System.Windows.Forms.MessageBox]::Show($owner, $Text, $Title, 'OK', $Icon) }
@@ -70,7 +74,7 @@ function Show-Message {
 }
 
 function Ask-YesNo {
-  param([string]$Text, [string]$Title = 'ChatGPT Account Switcher')
+  param([string]$Text, [string]$Title = 'Codex Account Switcher')
   Ensure-Gui
   $owner = Get-DialogOwner
   if ($owner) { $r = [System.Windows.Forms.MessageBox]::Show($owner, $Text, $Title, 'YesNo', 'Question') }
@@ -79,7 +83,7 @@ function Ask-YesNo {
 }
 
 function Show-InputDialog {
-  param([string]$Prompt, [string]$Title = 'ChatGPT Account Switcher', [string]$Default = '')
+  param([string]$Prompt, [string]$Title = 'Codex Account Switcher', [string]$Default = '')
   Ensure-Gui
   $owner = Get-DialogOwner
 
@@ -92,7 +96,8 @@ function Show-InputDialog {
   $dlg.TopMost = $true
   $dlg.StartPosition = $(if ($owner) { 'CenterParent' } else { 'CenterScreen' })
   $dlg.ClientSize = New-Object System.Drawing.Size(420, 130)
-  $dlg.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+  $dialogFont = New-Object System.Drawing.Font('Segoe UI', 10)
+  $dlg.Font = $dialogFont
 
   $lbl = New-Object System.Windows.Forms.Label
   $lbl.Text = $Prompt
@@ -122,9 +127,10 @@ function Show-InputDialog {
   $dlg.CancelButton = $cancel
   $dlg.add_Shown({ $this.Activate(); $tb.Focus(); $tb.SelectAll() })
 
-  $result = $(if ($owner) { $dlg.ShowDialog($owner) } else { $dlg.ShowDialog() })
-  $text = $tb.Text
-  $dlg.Dispose()
+  try {
+    $result = $(if ($owner) { $dlg.ShowDialog($owner) } else { $dlg.ShowDialog() })
+    $text = $tb.Text
+  } finally { $dlg.Dispose(); $dialogFont.Dispose() }
   if ($result -eq 'OK') { return $text }
   return $null
 }
@@ -315,7 +321,7 @@ function Add-Account {
 }
 
 function Remove-Account {
-  param([string]$Key)
+  param([string]$Key, [switch]$KeepData)
   $null = Get-AccountPaths '_config_check'
   New-Item -ItemType Directory -Force -Path $script:Root | Out-Null
   $lock = [IO.File]::Open((Join-Path $script:Root 'accounts.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
@@ -324,7 +330,7 @@ function Remove-Account {
     if (-not $acc) { throw "Account $Key was not found." }
     if ((Get-RunningAccountIds) -contains $acc.id) { throw "ChatGPT is running for $($acc.display). Close it first." }
     $p = Get-AccountPaths $acc.id
-    if (Test-Path -LiteralPath $p.Base) {
+    if (-not $KeepData -and (Test-Path -LiteralPath $p.Base)) {
       $links = Get-ChildItem -LiteralPath $p.Base -Recurse -Force -ErrorAction Stop |
         Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }
       if ($links) { throw 'Remove linked files/folders from this account before deleting it.' }
@@ -541,7 +547,7 @@ function Set-JumpList {
       $t.ApplicationPath = $ps
       $t.Arguments       = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Launch "{1}"' -f $script:ScriptPath, $r.id)
       if ($icon) { $t.IconResourcePath = $icon }
-      $t.Description = ("Open ChatGPT as {0}" -f $r.label)
+      $t.Description = ("Open Codex as {0}" -f $r.label)
       $jl.JumpItems.Add($t)
     }
 
@@ -589,7 +595,7 @@ function Get-AccountShortcutPath {
 function New-AccountShortcut {
   param($Account)
   $lnk = Get-AccountShortcutPath $Account
-  New-Shortcut -LnkPath $lnk -Arguments ('-Launch "{0}"' -f $Account.id) -IconPath (Get-AppIconPath) -Description ("Launch ChatGPT as {0}" -f $Account.display)
+  New-Shortcut -LnkPath $lnk -Arguments ('-Launch "{0}"' -f $Account.id) -IconPath (Get-AppIconPath) -Description ("Launch Codex as {0}" -f $Account.display)
   Write-Log "shortcut created: $lnk"
   return $lnk
 }
@@ -597,40 +603,54 @@ function New-AccountShortcut {
 function New-PickerShortcuts {
   $icon = Get-AppIconPath
   $desktop = [Environment]::GetFolderPath('Desktop')
-  $programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'ChatGPT Account Switcher'
+  $programs = [Environment]::GetFolderPath('Programs')
   $made = @()
-  $made += New-Shortcut -LnkPath (Join-Path $desktop 'ChatGPT Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch ChatGPT'
-  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch ChatGPT'
-  $made += New-Shortcut -LnkPath (Join-Path $programs 'ChatGPT Switcher (tray).lnk') -Arguments '-Tray' -IconPath $icon -Description 'Run in the tray; right-click to switch accounts'
+  $made += New-Shortcut -LnkPath (Join-Path $desktop 'Codex Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch Codex'
+  $made += New-Shortcut -LnkPath (Join-Path $programs 'Codex Account Switcher.lnk') -Arguments '' -IconPath $icon -Description 'Choose an account to launch Codex'
+  $made += New-Shortcut -LnkPath (Join-Path $programs 'Codex Switcher (tray).lnk') -Arguments '-Tray' -IconPath $icon -Description 'Run in the tray; right-click to switch accounts'
   foreach ($m in $made) { Set-ShortcutAppId -LnkPath $m }
   Set-JumpList
   return $made
 }
 
 function Install-TrayAutoStart {
-  $startup = [Environment]::GetFolderPath('Startup')
-  return New-Shortcut -LnkPath (Join-Path $startup 'ChatGPT Switcher (tray).lnk') -Arguments '-Tray' -IconPath (Get-AppIconPath) -Description 'ChatGPT Account Switcher (tray)'
+  param([switch]$Disable)
+  $path = Get-TrayStartupPath
+  $legacy = Join-Path (Split-Path -Parent $path) 'ChatGPT Switcher (tray).lnk'
+  if ($Disable) {
+    foreach ($link in @($path, $legacy)) { if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force } }
+    return
+  }
+  $result = New-Shortcut -LnkPath $path -Arguments '-Tray' -IconPath (Get-AppIconPath) -Description 'Codex Account Switcher (tray)'
+  if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Force }
+  return $result
 }
 
+function Get-TrayStartupPath {
+  return (Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex Switcher (tray).lnk')
+}
 
 function New-AvatarImage {
   param([string]$Hex, [string]$Text, [int]$Size = 28)
   Ensure-Gui
   $bmp = New-Object System.Drawing.Bitmap($Size, $Size)
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
-  $color = [System.Drawing.ColorTranslator]::FromHtml($Hex)
-  $brush = New-Object System.Drawing.SolidBrush($color)
-  $g.FillEllipse($brush, 0, 0, $Size - 1, $Size - 1)
-  $font = New-Object System.Drawing.Font('Segoe UI', [float]($Size * 0.45), [System.Drawing.FontStyle]::Bold)
-  $fmt = New-Object System.Drawing.StringFormat
-  $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
-  $rect = New-Object System.Drawing.RectangleF(0, 0, $Size, $Size)
-  $g.DrawString($Text, $font, [System.Drawing.Brushes]::White, $rect, $fmt)
-  $g.Dispose()
-  return $bmp
+  $g = $null; $brush = $null; $font = $null; $fmt = $null
+  try {
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.ColorTranslator]::FromHtml($Hex))
+    $g.FillEllipse($brush, 0, 0, $Size - 1, $Size - 1)
+    $font = New-Object System.Drawing.Font('Segoe UI', [float]($Size * 0.45), [System.Drawing.FontStyle]::Bold)
+    $fmt = New-Object System.Drawing.StringFormat
+    $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
+    $rect = New-Object System.Drawing.RectangleF(0, 0, $Size, $Size)
+    $g.DrawString($Text, $font, [System.Drawing.Brushes]::White, $rect, $fmt)
+    return $bmp
+  } catch { $bmp.Dispose(); throw }
+  finally { foreach ($resource in @($fmt, $font, $brush, $g)) { if ($resource) { $resource.Dispose() } } }
 }
+
 
 function Invoke-AddAccountFlow {
   Ensure-Gui
@@ -650,91 +670,132 @@ function Invoke-AddAccountFlow {
 
 function Show-Picker {
   Ensure-Gui
+  if ($script:PickerForm -and -not $script:PickerForm.IsDisposed -and $script:PickerForm.Visible) {
+    $script:PickerForm.Activate(); return
+  }
   Set-JumpList
-
   $form = New-Object System.Windows.Forms.Form
-  $form.Text = 'ChatGPT Account Switcher'
+  $form.Text = 'Codex Account Switcher'
   $form.StartPosition = 'CenterScreen'
-  $form.FormBorderStyle = 'FixedDialog'
+  $form.AutoScaleMode = 'Dpi'
+  $form.ClientSize = New-Object System.Drawing.Size(500, 600)
+  $form.MinimumSize = New-Object System.Drawing.Size(460, 280)
   $form.MaximizeBox = $false
-  $form.MinimizeBox = $false
-  $form.ShowInTaskbar = $true
   $form.KeyPreview = $true
-  $form.add_Shown({ $this.Activate(); $this.TopMost = $true; $this.TopMost = $false; $this.BringToFront() })
-  $form.AutoSize = $true
-  $form.AutoSizeMode = 'GrowAndShrink'
-  $form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+  $formFont = New-Object System.Drawing.Font('Segoe UI', 10)
+  $form.Font = $formFont
   $form.BackColor = [System.Drawing.Color]::White
   $form.Padding = New-Object System.Windows.Forms.Padding(12)
+  $form.add_Shown({ $this.Activate(); $this.BringToFront() })
   $iconPath = Get-AppIconPath
-  if ($iconPath) { try { $form.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath) } catch {} }
-
+  $ownedIcon = $null
+  if ($iconPath) { try { $ownedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath); $form.Icon = $ownedIcon } catch {} }
   $script:PickerForm = $form
+
+  $outer = New-Object System.Windows.Forms.TableLayoutPanel
+  $outer.Dock = 'Fill'; $outer.ColumnCount = 1; $outer.RowCount = 4
+  [void]$outer.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('AutoSize')))
+  [void]$outer.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('Percent', 100)))
+  [void]$outer.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('AutoSize')))
+  [void]$outer.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('AutoSize')))
 
   $header = New-Object System.Windows.Forms.Label
   $header.Text = 'Choose an account'
-  $header.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+  $headerFont = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+  $header.Font = $headerFont
   $header.AutoSize = $true
-  $header.Margin = New-Object System.Windows.Forms.Padding(4, 0, 4, 8)
+  $header.Margin = New-Object System.Windows.Forms.Padding(4, 0, 4, 12)
 
   $panel = New-Object System.Windows.Forms.FlowLayoutPanel
-  $panel.FlowDirection = 'TopDown'
-  $panel.WrapContents = $false
-  $panel.AutoSize = $true
-  $panel.AutoSizeMode = 'GrowAndShrink'
+  $panel.Dock = 'Fill'; $panel.FlowDirection = 'TopDown'; $panel.WrapContents = $false
+  $panel.AutoScroll = $true
+  $panel.AccessibleName = 'Accounts'
   $script:PickerPanel = $panel
 
+  $status = New-Object System.Windows.Forms.Label
+  $status.AutoSize = $true; $status.MaximumSize = New-Object System.Drawing.Size(455, 0)
+  $status.Margin = New-Object System.Windows.Forms.Padding(4, 6, 4, 6)
+  $script:PickerStatus = $status
+
   $footer = New-Object System.Windows.Forms.FlowLayoutPanel
-  $footer.FlowDirection = 'LeftToRight'
-  $footer.AutoSize = $true
-  $footer.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
-
+  $footer.AutoSize = $true; $footer.Dock = 'Fill'
   $btnAdd = New-Object System.Windows.Forms.Button
-  $btnAdd.Text = '+ Add account'
-  $btnAdd.AutoSize = $true
-  $btnAdd.Height = 34
-  $btnAdd.FlatStyle = 'System'
+  $btnAdd.Text = '+ Add account'; $btnAdd.AutoSize = $true; $btnAdd.Height = 36
   $btnAdd.add_Click({ if (Invoke-AddAccountFlow) { Update-PickerRows } })
-
+  $refresh = New-Object System.Windows.Forms.Button
+  $refresh.Text = 'Refresh (F5)'; $refresh.Name = 'RefreshButton'
+  $refresh.AutoSize = $true; $refresh.Height = 36
+  $refresh.add_Click({ try { Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
   $btnMenu = New-Object System.Windows.Forms.Button
-  $btnMenu.Text = 'Settings'
-  $btnMenu.AutoSize = $true
-  $btnMenu.Height = 34
-  $btnMenu.FlatStyle = 'System'
+  $btnMenu.Text = 'Settings'; $btnMenu.AutoSize = $true; $btnMenu.Height = 36
   $menu = New-Object System.Windows.Forms.ContextMenuStrip
-  [void]$menu.Items.Add('Create picker shortcuts (Desktop and Start menu)', $null, { try { New-PickerShortcuts | Out-Null; Show-Message 'Shortcuts created.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
+  [void]$menu.Items.Add('Create Desktop and Start menu shortcuts', $null, { try { New-PickerShortcuts | Out-Null; Show-Message 'Shortcuts created.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
   [void]$menu.Items.Add('Start tray mode', $null, { Start-Process -WindowStyle Hidden -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Tray' -f $script:ScriptPath) })
-  [void]$menu.Items.Add('Start tray mode when Windows starts', $null, { try { Install-TrayAutoStart | Out-Null; Show-Message 'Added to Windows startup.' } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
+  $startupItem = $menu.Items.Add('Start tray mode at Windows sign-in')
+  $startupItem.Tag = 'startup'
+  $startupItem.add_Click({
+    try {
+      if ($this.Checked) { Install-TrayAutoStart -Disable } else { Install-TrayAutoStart | Out-Null }
+      $this.Checked = -not $this.Checked
+    } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
+  })
+  $menu.add_Opening({
+    $entry = $this.Items | Where-Object { $_.Tag -eq 'startup' } | Select-Object -First 1
+    $path = Get-TrayStartupPath
+    $legacy = Join-Path (Split-Path -Parent $path) 'ChatGPT Switcher (tray).lnk'
+    $entry.Checked = (Test-Path -LiteralPath $path) -or (Test-Path -LiteralPath $legacy)
+  })
   [void]$menu.Items.Add('-')
-  [void]$menu.Items.Add('Open data folder', $null, { New-Item -ItemType Directory -Force -Path $script:Root | Out-Null; Start-Process explorer.exe $script:Root })
+  [void]$menu.Items.Add('Open data folder', $null, { New-Item -ItemType Directory -Force -Path $script:Root | Out-Null; Start-Process explorer.exe -ArgumentList ('"{0}"' -f $script:Root) })
   [void]$menu.Items.Add('Show diagnostics', $null, { Start-Process -FilePath (Get-PowerShellExe) -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Diagnose' -f $script:ScriptPath) })
-  $btnMenu.add_Click({ $menu.Show($btnMenu, (New-Object System.Drawing.Point(0, $btnMenu.Height))) })
-
-  $footer.Controls.Add($btnAdd)
-  $footer.Controls.Add($btnMenu)
-
-  $outer = New-Object System.Windows.Forms.FlowLayoutPanel
-  $outer.FlowDirection = 'TopDown'
-  $outer.WrapContents = $false
-  $outer.AutoSize = $true
-  $outer.AutoSizeMode = 'GrowAndShrink'
-  $outer.Controls.Add($header)
-  $outer.Controls.Add($panel)
-  $outer.Controls.Add($footer)
+  $btnMenu.Tag = $menu
+  $btnMenu.add_Click({ $this.Tag.Show($this, (New-Object System.Drawing.Point(0, $this.Height))) })
+  $footer.Controls.AddRange(@($btnAdd, $refresh, $btnMenu))
+  $outer.Controls.Add($header, 0, 0); $outer.Controls.Add($panel, 0, 1)
+  $outer.Controls.Add($status, 0, 2); $outer.Controls.Add($footer, 0, 3)
   $form.Controls.Add($outer)
-
-  $form.add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Escape') { $script:PickerForm.Close() } })
-
-  Update-PickerRows
-  [void]$form.ShowDialog()
-  $form.Dispose()
+  $form.add_KeyDown({
+    param($sender, $event)
+    if ($event.KeyCode -eq 'Escape') { $script:PickerForm.Close() }
+    if ($event.KeyCode -eq 'F5') {
+      try { Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
+      $event.Handled = $true
+    }
+  })
+  try { Update-PickerRows; [void]$form.ShowDialog() }
+  finally {
+    foreach ($control in @($panel.Controls)) {
+      if ($control -is [System.Windows.Forms.Button] -and $control.Image) { $control.Image.Dispose() }
+      if ($control.ContextMenuStrip) { $control.ContextMenuStrip.Dispose() }
+    }
+    $menu.Dispose()
+    $form.Dispose()
+    if ($ownedIcon) { $ownedIcon.Dispose() }
+    $headerFont.Dispose(); $formFont.Dispose()
+    $script:PickerForm = $null
+  }
 }
+
 
 function Update-PickerRows {
   $panel = $script:PickerPanel
   $panel.SuspendLayout()
+  try {
+  foreach ($control in @($panel.Controls)) {
+    if ($control -is [System.Windows.Forms.Button] -and $control.Image) { $control.Image.Dispose() }
+    if ($control.ContextMenuStrip) { $control.ContextMenuStrip.Dispose() }
+    $control.Dispose()
+  }
   $panel.Controls.Clear()
-  $running = Get-RunningAccountIds
+  try {
+    $running = @(Get-RunningAccountIds)
+    $script:PickerStatus.Text = 'Ready. F5 refreshes running status.'
+    $script:PickerStatus.ForeColor = [System.Drawing.Color]::DimGray
+  } catch {
+    $running = @()
+    $script:PickerStatus.Text = 'Running status unavailable. Close other desktop processes and refresh.'
+    $script:PickerStatus.ForeColor = [System.Drawing.Color]::DarkRed
+  }
   $cfg = Get-Config
 
   $rows = @()
@@ -749,8 +810,10 @@ function Update-PickerRows {
     $isRunning = ($running -contains $r.id)
     $badge = $(if ($r.mode -eq 'shared') { '  [Shared - disabled]' } else { '' })
     $btn.Text = '   ' + $r.display + $badge + $(if ($isRunning) { '   ● Running' } else { '' })
+    $btn.Name = 'Account_' + $r.id
+    $btn.AccessibleName = $r.display
     $btn.Tag = $r.id
-    $btn.Width = 400
+    $btn.Width = 440
     $btn.Height = 46
     $btn.TextAlign = 'MiddleLeft'
     $btn.ImageAlign = 'MiddleLeft'
@@ -785,7 +848,15 @@ function Update-PickerRows {
         $n = Show-InputDialog -Prompt 'Enter a new display name' -Title 'Rename' -Default $acc.display
         if (-not [string]::IsNullOrWhiteSpace($n)) { try { Rename-Account $this.Tag $n; Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' } }
       })
-      $mi3 = $cm.Items.Add('Delete this account...')
+      $keep = $cm.Items.Add('Remove from list (keep local data)')
+      $keep.Tag = $r.id
+      $keep.add_Click({
+        $acc = Find-Account $this.Tag
+        if (Ask-YesNo ("Remove {0} from this list? Local files will be kept in its profile folder." -f $acc.display)) {
+          try { Remove-Account $this.Tag -KeepData; Update-PickerRows } catch { Show-Message $_.Exception.Message 'Error' 'Error' }
+        }
+      })
+      $mi3 = $cm.Items.Add('Delete profile and local data...')
       $mi3.Tag = $r.id
       $mi3.add_Click({
         $acc = Find-Account $this.Tag
@@ -801,67 +872,77 @@ function Update-PickerRows {
   $hint = New-Object System.Windows.Forms.Label
   $hint.Text = 'Right-click for options. Accounts have separate data and can run together.'
   $hint.AutoSize = $true
-  $hint.ForeColor = [System.Drawing.Color]::Gray
-  $hint.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
+  $hint.ForeColor = [System.Drawing.Color]::DimGray
   $hint.Margin = New-Object System.Windows.Forms.Padding(6, 6, 4, 0)
   $panel.Controls.Add($hint)
 
-  $panel.ResumeLayout()
+  } finally { $panel.ResumeLayout() }
 }
 
 
 function Start-Tray {
-  Ensure-Gui
-  Set-JumpList
-  $ni = New-Object System.Windows.Forms.NotifyIcon
-  $iconPath = Get-AppIconPath
-  $ni.Icon = [System.Drawing.SystemIcons]::Application
-  if ($iconPath) { try { $ni.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath) } catch {} }
-  $ni.Text = 'ChatGPT Account Switcher'
-  $menu = New-Object System.Windows.Forms.ContextMenuStrip
-  $menu.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-
-  $menu.add_Opening({
-    $m = $this
-    $m.Items.Clear()
-    $running = Get-RunningAccountIds
-    $head = $m.Items.Add('Open ChatGPT:')
-    $head.Enabled = $false
-    $mainItem = $m.Items.Add($script:MainLabel + $(if ($running -contains $script:MainId) { '  ● Running' } else { '' }))
-    $mainItem.Tag = $script:MainId
-    $mainItem.Image = New-AvatarImage -Hex '#10A37F' -Text 'M' -Size 20
-    $mainItem.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
-    foreach ($a in (Get-Config).accounts) {
-      $it = $m.Items.Add($a.display + $(if ($running -contains $a.id) { '  ● Running' } else { '' }))
-      $it.Tag = $a.id
-      $it.Image = New-AvatarImage -Hex $a.color -Text $a.display.Substring(0, 1) -Size 20
-      $it.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
-    }
-    [void]$m.Items.Add('-')
-    $add = $m.Items.Add('+ Add account')
-    $add.add_Click({ Invoke-AddAccountFlow | Out-Null })
-    $pick = $m.Items.Add('Open account picker')
-    $pick.add_Click({ Show-Picker })
-    [void]$m.Items.Add('-')
-    $quit = $m.Items.Add('Exit tray mode')
-    $quit.add_Click({ [System.Windows.Forms.Application]::Exit() })
-  })
-
-  $ni.ContextMenuStrip = $menu
-  $ni.add_MouseClick({ param($s, $e) if ($e.Button -eq 'Left') { Show-Picker } })
-  $ni.Visible = $true
-  Write-Log 'tray started'
+  $created = $false
+  $mutex = New-Object System.Threading.Mutex($true, $script:TrayMutexName, [ref]$created)
+  if (-not $created) { $mutex.Dispose(); Write-Log 'tray already running'; return }
+  $ni = $null; $menu = $null; $ownedIcon = $null; $menuFont = $null
   try {
-    [System.Windows.Forms.Application]::Run((New-Object System.Windows.Forms.ApplicationContext))
+    Ensure-Gui
+    Set-JumpList
+    $ni = New-Object System.Windows.Forms.NotifyIcon
+    $iconPath = Get-AppIconPath
+    $ni.Icon = [System.Drawing.SystemIcons]::Application
+    if ($iconPath) { try { $ownedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath); $ni.Icon = $ownedIcon } catch {} }
+    $ni.Text = 'Codex Account Switcher'
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $menuFont = New-Object System.Drawing.Font('Segoe UI', 10)
+    $menu.Font = $menuFont
+    $menu.add_Opening({
+      $m = $this
+      foreach ($item in @($m.Items)) { if ($item.Image) { $item.Image.Dispose() }; $item.Dispose() }
+      $m.Items.Clear()
+      try {
+        $running = @(Get-RunningAccountIds)
+        $head = $m.Items.Add('Open Codex:'); $head.Enabled = $false
+      } catch {
+        $running = @()
+        $head = $m.Items.Add('Running status unavailable'); $head.Enabled = $false
+      }
+      try {
+        $rows = @([pscustomobject]@{id=$script:MainId; display=$script:MainLabel; color='#10A37F'}) + @((Get-Config).accounts)
+        foreach ($account in $rows) {
+          $item = $m.Items.Add($account.display + $(if ($running -contains $account.id) { '  - Running' } else { '' }))
+          $item.Tag = $account.id
+          $item.Image = New-AvatarImage -Hex $account.color -Text $account.display.Substring(0, 1) -Size 20
+          $item.add_Click({ try { Start-Account $this.Tag } catch { Show-Message $_.Exception.Message 'Error' 'Error' } })
+        }
+      } catch { $errorItem = $m.Items.Add('Cannot read accounts: open the picker for details'); $errorItem.Enabled = $false }
+      [void]$m.Items.Add('-')
+      $add = $m.Items.Add('+ Add account'); $add.add_Click({ Invoke-AddAccountFlow | Out-Null })
+      $pick = $m.Items.Add('Open account picker'); $pick.add_Click({ Show-Picker })
+      [void]$m.Items.Add('-')
+      $quit = $m.Items.Add('Exit tray mode'); $quit.add_Click({ [System.Windows.Forms.Application]::ExitThread() })
+    })
+    $ni.ContextMenuStrip = $menu
+    $ni.add_MouseClick({ param($sender, $event) if ($event.Button -eq 'Left') { Show-Picker } })
+    $ni.Visible = $true
+    Write-Log 'tray started'
+    $context = New-Object System.Windows.Forms.ApplicationContext
+    try { [System.Windows.Forms.Application]::Run($context) } finally { $context.Dispose() }
   } finally {
-    $ni.Visible = $false
-    $ni.Dispose()
+    if ($ni) { $ni.Visible = $false; $ni.Dispose() }
+    if ($menu) {
+      foreach ($item in @($menu.Items)) { if ($item.Image) { $item.Image.Dispose() }; $item.Dispose() }
+      $menu.Dispose()
+    }
+    if ($ownedIcon) { $ownedIcon.Dispose() }
+    if ($menuFont) { $menuFont.Dispose() }
+    $mutex.ReleaseMutex(); $mutex.Dispose()
   }
 }
 
 
 function Show-Diagnose {
-  Write-Host '=== ChatGPT Account Switcher diagnostics ===' -ForegroundColor Cyan
+  Write-Host '=== Codex Account Switcher diagnostics ===' -ForegroundColor Cyan
   Write-Host ("Version      : {0}" -f $script:AppVersion)
   Write-Host ("Script       : {0}" -f $script:ScriptPath)
   Write-Host ("Data folder  : {0}" -f $script:Root)
@@ -911,6 +992,11 @@ function Show-Diagnose {
 
 
 try {
+  if ($KeepData -and -not $Remove) { throw '-KeepData requires -Remove.' }
+  if ($AutoStartTray -and $NoAutoStartTray) { throw 'Choose either startup enable or disable.' }
+  $operations = @(@($Launch, $Add, $Remove, $List, $Setup, $Tray, $AutoStartTray, $NoAutoStartTray, $Diagnose, $Version) | Where-Object { $_ })
+  if ($operations.Count -gt 1) { throw 'Choose one primary operation per invocation.' }
+  if ($NoShortcut -and -not ($Add -or $Setup)) { throw '-NoShortcut requires -Add or -Setup.' }
   if ($Version) { Write-Host ("ChatGPT-Switcher {0}" -f $script:AppVersion); return }
 
   if ($Diagnose) { Show-Diagnose; return }
@@ -932,18 +1018,19 @@ try {
     return
   }
 
-  if ($Remove) { Remove-Account $Remove; Write-Host "Removed: $Remove"; return }
+  if ($Remove) { Remove-Account $Remove -KeepData:$KeepData; Write-Host "Removed: $Remove"; return }
 
   if ($Setup) {
     $made = New-PickerShortcuts
     $made | ForEach-Object { Write-Host "Created: $_" }
-    $msg = "Shortcuts created:`n" + ($made -join "`n") + "`n`nTo pin to the taskbar, right-click ChatGPT Account Switcher in Start and choose Pin to taskbar.`nRight-click the pinned icon to see your accounts."
+    $msg = "Shortcuts created:`n" + ($made -join "`n") + "`n`nTo pin to the taskbar, right-click Codex Account Switcher in Start and choose Pin to taskbar.`nRight-click the pinned icon to see your accounts."
     Write-Host $msg
     if (-not $NoShortcut) { Show-Message $msg }
     return
   }
 
   if ($AutoStartTray) { $lnk = Install-TrayAutoStart; Write-Host "Added to startup: $lnk"; return }
+  if ($NoAutoStartTray) { Install-TrayAutoStart -Disable; Write-Host 'Removed from Windows startup.'; return }
 
   if ($Tray) { Start-Tray; return }
 
@@ -952,10 +1039,10 @@ try {
   Show-Picker
 } catch {
   Write-Log ("ERROR: {0}`n{1}" -f $_.Exception.Message, $_.ScriptStackTrace)
-  if ($Diagnose -or $List -or $Add -or $Remove) {
+  if ($PSBoundParameters.Count -gt 0 -and -not ($Tray -and $PSBoundParameters.Count -eq 1)) {
     Write-Host ("Error: {0}" -f $_.Exception.Message) -ForegroundColor Red
     exit 1
   }
-  Show-Message ("Error: {0}`n`nDetails log: {1}" -f $_.Exception.Message, $script:LogPath) 'ChatGPT Account Switcher' 'Error'
+  Show-Message ("Error: {0}`n`nDetails log: {1}" -f $_.Exception.Message, $script:LogPath) 'Codex Account Switcher' 'Error'
   exit 1
 }

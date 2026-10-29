@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.4.0] - 2026-10-29
+
+### Added
+- Refresh button and F5 shortcut for the picker, with visible feedback when process status is unavailable.
+- Scrollable account list and a resizable picker with keyboard-accessible controls.
+- Single tray instance per Windows sign-in session, scoped to the user.
+- `-NoAutoStartTray` and a checked startup setting; enabling/disabling migrates the legacy startup shortcut.
+- `-Remove NAME -KeepData` and a confirmed keep-data action in the profile menu.
+- Windows CI for core, CLI and UI checks under Windows PowerShell 5.1 and PowerShell 7.
+- Expanded English README and Persian guide covering download, setup, usage, upgrades and troubleshooting.
+
+### Fixed
+- CLI commands now preserve output, error output and exit codes; only the picker and a lone `-Tray` launch in the background.
+- Reject unknown parameters, conflicting operations and invalid modifiers before any profile mutation. Invalid tray combinations report console errors instead of opening modal dialogs.
+- Dispose replaced rows, avatar images, drawing helpers, menus, fonts, icons and tray resources.
+- Keep the picker usable when running status cannot be inspected, while deletion still uses strict safety checks.
+
+### Changed
+- Consistent Codex Account Switcher labels and Start-root shortcuts. Existing script filenames and profile locations remain compatible.
+- The GitHub repository is now standalone; upstream MIT attribution and commit history are retained.
+
+### Validation
+- Core, real CMD forwarding/exit-code checks and synthetic 30-profile UI checks pass in both PowerShell engines.
+- Junction checks report SKIP when creation is denied. Real sign-in identities and restart persistence remain unverified.
+- README documents the PowerShell-to-CMD metacharacter limitation and direct `.ps1` invocation for arbitrary names.
+
 ## [1.3.0] - 2026-10-29
 
 ### Changed

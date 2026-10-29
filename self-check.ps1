@@ -34,6 +34,12 @@ try {
   Assert ($fresh.id -ne 'Orphan') 'New account reused an existing unregistered profile'
   Remove-Account $fresh.id
   Assert (Test-Path -LiteralPath (Join-Path $orphan 'keep.txt')) 'Existing profile data changed'
+  $retained = Add-Account -Display 'Retained' -SkipShortcut
+  $retainedPath = (Get-AccountPaths $retained.id).Base
+  Set-Content -LiteralPath (Join-Path $retainedPath 'keep.txt') -Value 'retained local data'
+  Remove-Account $retained.id -KeepData
+  Assert (Test-Path -LiteralPath (Join-Path $retainedPath 'keep.txt')) 'KeepData deleted local profile files'
+  Assert (-not (Find-Account $retained.id)) 'KeepData did not unregister profile'
   $heldLock = [IO.File]::Open((Join-Path $script:Root 'accounts.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   try {
     Must-Fail { Add-Account -Display 'Concurrent' -SkipShortcut } 'Concurrent account mutation was allowed'
@@ -152,6 +158,25 @@ try {
   Must-Fail { & $runningBody } 'Process-query failure was silently ignored'
   function Get-CimInstance { [pscustomobject]@{Name='Codex.exe'; CommandLine=$null} }
   Must-Fail { & $runningBody } 'Unreadable process command line was treated as a closed profile'
+  $dispatch = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TryStatementAst] })[-1].Body.Extent.Text
+  $dispatchBody = [scriptblock]::Create($dispatch.Substring(1, $dispatch.Length - 2))
+  $script:MutationCount = 0
+  function Add-Account { $script:MutationCount++; [pscustomobject]@{id='blocked'; display='blocked'} }
+  $Add = 'Blocked'; $KeepData = $true
+  Must-Fail { & $dispatchBody } 'Invalid KeepData modifier was not rejected before mutation'
+  $KeepData = $false; $AutoStartTray = $true; $NoAutoStartTray = $true
+  Must-Fail { & $dispatchBody } 'Conflicting startup flags were not rejected before mutation'
+  $AutoStartTray = $false; $NoAutoStartTray = $false; $Remove = 'Other'
+  Must-Fail { & $dispatchBody } 'Multiple operations were not rejected before mutation'
+  Assert ($script:MutationCount -eq 0) 'Invalid options mutated account state'
+  $catchText = @($ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.TryStatementAst] })[-1].CatchClauses[0].Body.Extent.Text
+  # Return from the probe instead of exiting the test host; preserve both early exits.
+  $catchText = $catchText.Substring(1, $catchText.Length - 2).Replace('exit 1', 'return')
+  $catchProbe = [scriptblock]::Create('param([switch]$Tray, [switch]$Version)' + "`n" + $catchText)
+  $script:PopupCount = 0
+  function Show-Message { $script:PopupCount++ }
+  & { function Write-Host {}; & $catchProbe -Tray -Version }
+  Assert ($script:PopupCount -eq 0) 'Invalid Tray combination opened a modal error instead of using CLI output'
   Write-Host 'PASS: syntax, reserved/unsafe paths, profile CRUD/locking/orphans, duplicate names, invalid config, backups, Main/isolated environments, discovery/cache/fallback, process safety, English UI, no installer/publisher.'
 } finally {
   # The exact test directory is generated directly under this script folder.

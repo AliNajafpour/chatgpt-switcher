@@ -15,3 +15,4 @@ desktop.ini
 work/
 outputs/
 .self-check-*/
+.cli-self-check*/

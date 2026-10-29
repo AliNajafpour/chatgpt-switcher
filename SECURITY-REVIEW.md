@@ -36,3 +36,14 @@ Windows denied test-junction creation here, so that test reports SKIP. Link prev
 An unauthenticated real-app isolation smoke check passed on the Store build noted above; the disposable test process tree was then stopped. Actual sign-in identity, account persistence, shortcut installation, tray autostart and end-to-end GUI interaction were not verified. The automated discovery tests still use synthetic package metadata. No dependency audit of the official desktop app was performed. Remaining defects and product improvements are listed in REVIEW.md.
 
 Profile files and authentication backups created by older versions remain sensitive. Protect them with Windows permissions; do not upload them. No extra encryption was added. Removing an account intentionally deletes that profile's local data.
+
+## Version 1.4.0 follow-up
+
+- Command parsing rejects unknown options, multiple primary operations and invalid modifiers before writes. Explicit CLI errors return to the terminal, including invalid tray combinations.
+- A single user/session-scoped tray mutex prevents duplicate persistent tray instances. Profile mutation locking remains independent.
+- Keep-data removal unregisters a profile and removes its shortcut while preserving its data directory. Default removal remains destructive and the UI requires confirmation.
+- Startup enable/disable uses only the known switcher shortcut paths and migrates the legacy shortcut. Tests redirect this boundary to a temporary directory; they never enable actual startup.
+- Drawing, replaced controls and tray resources now have explicit disposal. A synthetic 30-profile WinForms check covers Refresh, visible status failures and scrolling in both engines.
+- Core and CLI tests check invalid combinations without writing user data. CI pins its checkout action and grants read-only repository contents access.
+- The `.cmd` convenience launcher inherits CMD's metacharacter interpretation. This happens before the batch body and cannot be sanitized there. Use direct `.ps1` invocation for arbitrary or user-supplied profile names, as documented in both READMEs.
+- Diagnostic output still contains local paths and must be redacted manually before sharing. No automatic credential copying, online installer or new runtime dependency was added.

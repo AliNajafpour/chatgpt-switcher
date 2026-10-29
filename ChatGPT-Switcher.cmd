@@ -1,13 +1,13 @@
 @echo off
 rem ChatGPT account switcher launcher (double-click to open the picker)
-rem Usage: ChatGPT-Switcher.cmd [-Launch name | -Add name | -Remove name | -List | -Setup | -Tray | -AutoStartTray | -Diagnose]
+rem Only no arguments or a lone -Tray run in the background. All other arguments run synchronously.
 setlocal
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-if /I "%~1"=="-Diagnose" (
-  "%PS%" -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0ChatGPT-Switcher.ps1" %*
-) else if /I "%~1"=="-List" (
-  "%PS%" -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0ChatGPT-Switcher.ps1" %*
-) else (
-  start "" "%PS%" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0ChatGPT-Switcher.ps1" %*
-)
-endlocal
+if "%~1"=="" goto background
+if /I "%~1"=="-Tray" if "%~2"=="" goto background
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0ChatGPT-Switcher.ps1" %*
+exit /b %errorlevel%
+
+:background
+start "" "%PS%" -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%~dp0ChatGPT-Switcher.ps1" %*
+exit /b %errorlevel%

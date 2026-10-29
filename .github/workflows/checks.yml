@@ -1,0 +1,30 @@
+name: Windows checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  self-checks:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Core self-check
+        shell: ${{ matrix.shell }}
+        run: ./self-check.ps1
+      - name: CLI self-check
+        shell: ${{ matrix.shell }}
+        run: ./cli-self-check.ps1
+      - name: UI self-check
+        shell: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -STA -File {0}
+        run: ./ui-self-check.ps1
