@@ -4,7 +4,7 @@ A local Windows launcher for using separate accounts in the official Codex deskt
 
 Each added profile gets its own app data and `CODEX_HOME`. Your existing desktop login remains available as **Main (existing login)**. Separate profiles can run together when supported by the installed desktop app.
 
-Version **1.4.0** · Windows · PowerShell
+Version **1.5.0** · Windows · PowerShell
 
 This is an unofficial community project, unaffiliated with OpenAI. It launches your installed app; it does not install Codex, provide accounts, or change subscription limits.
 
@@ -12,12 +12,27 @@ This is an unofficial community project, unaffiliated with OpenAI. It launches y
 
 You need Windows 10 or 11, Windows PowerShell 5.1 or newer, and the official Codex desktop app installed and working. There are no additional packages, build tools, or runtime dependencies to install.
 
-1. [Download the source ZIP](https://github.com/AliNajafpour/chatgpt-switcher/archive/refs/heads/main.zip).
-2. Extract it into a permanent folder you control, such as `Documents\Codex Account Switcher`. Do not run it inside the ZIP.
-3. Keep `ChatGPT-Switcher.cmd` and `ChatGPT-Switcher.ps1` together.
-4. Double-click `ChatGPT-Switcher.cmd` to open the account picker.
+1. **[Download the setup ZIP](https://github.com/AliNajafpour/chatgpt-switcher/releases/latest/download/Codex-Account-Switcher-Setup.zip).**
+2. Extract the entire ZIP. You can extract it in Downloads; do not run setup inside the ZIP.
+3. Double-click **`Setup.cmd`**. It installs the program, creates Start menu and desktop shortcuts, and opens the account picker.
+4. Next time, search Start for **Codex Account Switcher**. You can remove the extracted download after setup finishes.
 
-The `ChatGPT-Switcher` filenames are retained for compatibility. The visible app name is Codex Account Switcher. There is no `.exe` installer or online installation script.
+Setup installs for your Windows user in `%LOCALAPPDATA%\Programs\CodexAccountSwitcher`. It needs no administrator access, makes no downloads, and does not change your existing profile data or enable startup. Re-running a newer setup updates only the program files. Close the picker and tray before upgrading.
+
+The installer is a readable local PowerShell script with a double-click launcher, not an `.exe` or an online installation script. The `ChatGPT-Switcher` app filenames are retained for compatibility.
+
+For automated or custom installation, run the PowerShell script directly:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Setup.ps1 -NoLaunch
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Setup.ps1 -InstallDirectory 'D:\Apps\Codex Account Switcher' -NoLaunch -NoShortcuts
+```
+
+`-NoLaunch` leaves the app closed. `-NoShortcuts` skips shortcut creation. Use an empty folder for a custom destination. Setup refuses to overwrite an unrelated non-empty folder and restores replaced files if a program-file update fails; if Windows also blocks restoration, it preserves the backup folder and prints its location. If only shortcut creation or app launch fails, the installed files stay in place so shortcuts keep a valid target; rerun setup to repair them.
+
+### Portable use and source checkout
+
+If you prefer not to install, [download the source ZIP](https://github.com/AliNajafpour/chatgpt-switcher/archive/refs/heads/main.zip), extract it into a permanent folder you control, and double-click `ChatGPT-Switcher.cmd`. Keep it together with `ChatGPT-Switcher.ps1`; portable shortcuts point to that folder.
 
 If you use Git, clone the same source instead:
 
@@ -27,7 +42,7 @@ cd chatgpt-switcher
 .\ChatGPT-Switcher.cmd
 ```
 
-The ZIP tracks the current `main` branch. Check the [changelog](CHANGELOG.md) for changes and the [releases page](https://github.com/AliNajafpour/chatgpt-switcher/releases) for any published releases.
+The source ZIP tracks `main`; the setup ZIP comes from the latest published release. Check the [changelog](CHANGELOG.md) and [releases](https://github.com/AliNajafpour/chatgpt-switcher/releases) for changes. `Setup.cmd` also works from a complete source checkout.
 
 ## First use
 
@@ -48,7 +63,7 @@ Right-click an added profile to rename it, create its desktop shortcut, remove i
 
 ### Add the switcher to Start
 
-Open the picker's Settings menu and choose the shortcut creation action, or run this in PowerShell from the extracted folder:
+The installer creates these shortcuts automatically. To recreate them, open the picker's Settings menu and choose the shortcut creation action, or run this in PowerShell from the installed or portable program folder:
 
 ```powershell
 .\ChatGPT-Switcher.cmd -Setup
@@ -64,7 +79,7 @@ Setup creates these shortcuts for your Windows user:
 
 Search Start for **Codex Account Switcher** to open it. You can pin the Start shortcut to the taskbar using Windows' available pin action. The switcher also maintains account launch entries in its taskbar jump list, where supported by Windows.
 
-Shortcuts point to the extracted script folder. If you move that folder, run `-Setup` again and recreate profile shortcuts from the picker. Profile shortcuts use stable IDs, so renaming an account does not change its data folder.
+Installed shortcuts point to the stable installation folder. Portable shortcuts point to the extracted script folder. If you move between folders, recreate profile shortcuts from the picker and remove obsolete pinned shortcuts. Profile shortcuts use stable IDs, so renaming an account does not change its data folder.
 
 ### Tray and Windows startup
 
@@ -80,7 +95,7 @@ Tray mode keeps an icon in the Windows notification area. Left-click it to open 
 
 ## Command line
 
-Run these commands in PowerShell from the switcher's folder. Quote names containing spaces. Launch and removal accept the profile's display name or stable ID; `-List` shows IDs. Use one primary operation per invocation.
+Run these commands in PowerShell from the switcher's installed or portable folder. Quote names containing spaces. Launch and removal accept the profile's display name or stable ID; `-List` shows IDs. Use one primary operation per invocation.
 
 For names containing CMD special characters such as `&`, `|`, `<`, `>`, `^`, `%`, `!`, or parentheses, invoke the `.ps1` script directly. Quoting alone does not make those names safe through the `.cmd` launcher:
 
@@ -159,10 +174,9 @@ Main is not a switcher-managed profile and cannot be removed through these opera
 ## Upgrade
 
 1. Exit tray mode and close the picker. Close profile windows if you plan to back up their data.
-2. Download and extract the new source, or run `git pull` in a clean clone.
-3. Replace the program files in the same permanent folder. Keep `ChatGPT-Switcher.cmd` and `.ps1` from the same version together.
-4. Run `-Version`, then `-Setup` to refresh picker shortcuts. Recreate profile shortcuts as needed.
-5. If tray startup was enabled, run `-AutoStartTray` again to refresh its target, then start tray mode.
+2. Download and extract the newer setup ZIP, then double-click `Setup.cmd` again. Use the same `-InstallDirectory` if you chose a custom location. Program files are staged before replacement; failed updates attempt to restore the previous files.
+3. For portable use, replace the program files together in the same folder, or run `git pull` in a clean clone. Run `-Setup` to refresh picker shortcuts.
+4. Recreate profile shortcuts from the picker if you changed the program location. If tray startup was enabled and the location changed, run `-AutoStartTray` to refresh its target.
 
 Profile data lives outside the program folder under `%USERPROFILE%\ChatGPT-Accounts`. Updating program files does not migrate or erase it. If the program folder moves, recreate or manually remove old shortcuts, including pinned shortcuts and obsolete ChatGPT-branded links.
 
@@ -182,6 +196,9 @@ Versions before 1.3.0 supported shared-auth switching. That mode and its flags h
 | `accounts.json` is corrupt | Exit the switcher. Preserve the damaged file, then restore a known-valid `accounts.json.bak` if available. It restores registrations only, not deleted data. |
 | Windows blocks a downloaded script | Review the source first. If you trust this download, use Properties > Unblock where available. Managed-device policy may require your administrator. |
 | No tray icon appears | Check Windows' hidden notification icons. A second tray launch exits when an instance already runs for your user. |
+| Setup reports an incomplete download | Extract the entire ZIP, including Setup.ps1, both launcher files and the documentation. Do not move Setup.cmd out of that folder. |
+| Setup refuses an existing directory | Use its default location or choose an empty folder. For safety, setup only updates folders marked by this installer. |
+| Setup cannot replace a file | Close the picker and tray, wait for any other setup to finish, then retry. A retained `.setup-*` backup folder is reported if restoration was also blocked. |
 
 For a bug report, include Windows, PowerShell, and app versions, the command or UI action, the error text, and relevant diagnostics. Open an [issue](https://github.com/AliNajafpour/chatgpt-switcher/issues).
 
@@ -191,7 +208,7 @@ Diagnostics and `%USERPROFILE%\ChatGPT-Accounts\switcher.log` may contain your W
 
 1. Disable tray startup with `.\ChatGPT-Switcher.cmd -NoAutoStartTray`.
 2. Exit tray mode and close the picker.
-3. Delete the program folder and its Desktop, Start menu, and pinned shortcuts. Remove old ChatGPT-branded shortcuts you no longer use.
+3. Delete the program folder and its Desktop, Start menu, and pinned shortcuts. The default installed folder is `%LOCALAPPDATA%\Programs\CodexAccountSwitcher`. Remove old ChatGPT-branded shortcuts you no longer use.
 4. Keep `%USERPROFILE%\ChatGPT-Accounts` to retain profile data. Delete it only after closing all isolated app windows and deciding to permanently erase every profile stored there.
 
 Uninstalling the switcher does not uninstall the official app or remove Main's default data. There is no uninstaller service or background updater.
@@ -208,12 +225,13 @@ See [SECURITY-REVIEW.md](SECURITY-REVIEW.md) for findings and limitations, and [
 
 ## Development and checks
 
-There is no build step. Run the dependency-free checks from the repository folder:
+There is no build step. Run the dependency-free checks from the source repository, not the installed release folder:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\self-check.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\cli-self-check.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File .\ui-self-check.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup-self-check.ps1
 ```
 
 With PowerShell 7 installed:
@@ -222,9 +240,10 @@ With PowerShell 7 installed:
 pwsh.exe -NoProfile -File .\self-check.ps1
 pwsh.exe -NoProfile -File .\cli-self-check.ps1
 pwsh.exe -NoProfile -STA -File .\ui-self-check.ps1
+pwsh.exe -NoProfile -File .\setup-self-check.ps1
 ```
 
-GitHub Actions runs all three checks on Windows with Windows PowerShell 5.1 and PowerShell 7. Checks use synthetic profiles and substitutes for relevant external effects. They do not sign in to real accounts or establish end-to-end account isolation. Junction checks report a skip if Windows denies junction creation; a skip is not coverage.
+GitHub Actions runs all four checks on Windows with Windows PowerShell 5.1 and PowerShell 7. Setup checks install into temporary folders, reuse a harmless shortcut-setup stand-in, and test upgrades and rollback without modifying actual shortcuts or accounts. Other checks use synthetic profiles and substitutes for relevant external effects. They do not sign in to real accounts or establish end-to-end account isolation. Junction checks report a skip if Windows denies junction creation; a skip is not coverage.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing. Keep changes small, keep runtime dependencies at zero, and keep authentication handling inside the official app.
 

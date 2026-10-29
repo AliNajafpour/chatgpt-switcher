@@ -21,11 +21,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\cli-self-check.ps1
 pwsh.exe -NoProfile -File .\cli-self-check.ps1
 powershell.exe -STA -NoProfile -ExecutionPolicy Bypass -File .\ui-self-check.ps1
 pwsh.exe -STA -NoProfile -File .\ui-self-check.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup-self-check.ps1
+pwsh.exe -NoProfile -File .\setup-self-check.ps1
 ```
 
 The check uses synthetic data and never signs into a real account. A skipped junction check must be reported separately from passing checks. Real Store/standalone launches and GUI flows still need manual testing before a release.
 
-GitHub Actions runs all three checks on Windows in both engines. UI checks use generated profiles, mocked account launching and temporary startup shortcuts. They do not change real account data or startup settings. Prefer invoking the PowerShell script directly for arbitrary profile names; CMD interprets metacharacters before a batch file can validate them.
+GitHub Actions runs all four checks on Windows in both engines. UI checks use generated profiles, mocked account launching and temporary startup shortcuts. They do not change real account data or startup settings. Prefer invoking the PowerShell script directly for arbitrary profile names; CMD interprets metacharacters before a batch file can validate them.
+
+The additional setup check copies only synthetic fixture files into temporary installation directories. It replaces shortcut setup and app launching with harmless stand-ins, then exercises upgrades, rollback and refusal to overwrite unrelated folders. It does not install into your actual Programs folder. Keep setup offline and preserve the explicit payload allowlist.
 
 Syntax check without executing:
 

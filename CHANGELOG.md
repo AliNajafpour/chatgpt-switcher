@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.0] - 2026-10-29
+
+### Added
+- Double-click `Setup.cmd` for offline, per-user installation to `%LOCALAPPDATA%\Programs\CodexAccountSwitcher`.
+- Reuse the installed app's shortcut setup, then open the picker. No administrator access, downloads, account-data changes or automatic startup registration.
+- Custom destination, no-launch and no-shortcut options through `Setup.ps1`.
+- Staged program updates with rollback, preserved backups if restoration is blocked, an exclusive setup lock, and refusal to overwrite unrelated folders or linked payload files.
+- A compact setup ZIP release and a fourth Windows check covering installation, updates, rollback and incomplete packages in both PowerShell engines.
+
 ## [1.4.0] - 2026-10-29
 
 ### Added

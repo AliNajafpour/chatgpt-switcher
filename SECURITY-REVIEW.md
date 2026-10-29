@@ -47,3 +47,11 @@ Profile files and authentication backups created by older versions remain sensit
 - Core and CLI tests check invalid combinations without writing user data. CI pins its checkout action and grants read-only repository contents access.
 - The `.cmd` convenience launcher inherits CMD's metacharacter interpretation. This happens before the batch body and cannot be sanitized there. Use direct `.ps1` invocation for arbitrary or user-supplied profile names, as documented in both READMEs.
 - Diagnostic output still contains local paths and must be redacted manually before sharing. No automatic credential copying, online installer or new runtime dependency was added.
+
+## Version 1.5.0 local setup
+
+The new Setup.cmd/Setup.ps1 are offline installers for an already downloaded package. They do not restore the old network installer. Setup copies a fixed list of program/documentation files to a per-user folder and delegates shortcut creation to the installed app. Profile data remains in its existing separate directory and is not copied, migrated or deleted.
+
+Updates require an empty directory or the setup identity marker. Setup rejects linked destination/payload files, holds an exclusive file handle during installation, stages source files before replacement and attempts rollback on failure. If rollback itself is blocked, prior files are retained in the reported staging directory. These checks protect ordinary installation mistakes, not a hostile process running as the same Windows user racing filesystem operations.
+
+The setup self-check covers fresh installation, installed-path launch/shortcut invocation, upgrades, interrupted updates, unrelated files and missing payloads using temporary folders and harmless stand-ins. Actual user shortcuts and sign-ins are not changed by that test. Release ZIPs are unsigned; their scripts remain readable and an accompanying SHA-256 file allows download-integrity checks.

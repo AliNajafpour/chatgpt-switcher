@@ -34,3 +34,8 @@ jobs:
         run: |
           & '${{ matrix.shell }}' -NoProfile -ExecutionPolicy Bypass -STA -File ./ui-self-check.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Local setup self-check
+        shell: pwsh
+        run: |
+          & '${{ matrix.shell }}' -NoProfile -ExecutionPolicy Bypass -File ./setup-self-check.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
