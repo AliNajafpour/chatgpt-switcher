@@ -48,6 +48,16 @@ Profile files and authentication backups created by older versions remain sensit
 - The `.cmd` convenience launcher inherits CMD's metacharacter interpretation. This happens before the batch body and cannot be sanitized there. Use direct `.ps1` invocation for arbitrary or user-supplied profile names, as documented in both READMEs.
 - Diagnostic output still contains local paths and must be redacted manually before sharing. No automatic credential copying, online installer or new runtime dependency was added.
 
+## Version 1.6.0 macOS/Linux ports
+
+The Unix picker uses Python/Tk, packaged with PyInstaller on native macOS/Linux runners. Runtime code uses only the standard library. It reads its own registration JSON and app bundle metadata, never credentials, cookies or tokens. Launch uses a literal argument list and a child-only environment. Linux launches restore the library path changed by PyInstaller before starting the external desktop app.
+
+New profile directories are private to the current user. Config writes use a private temporary file, fsync and atomic replacement; mutations hold an exclusive advisory lock. Linked profile/config paths are refused. Unregistering preserves all profile data. This does not defend against malicious code running as the same user or encrypt local data.
+
+Offline setup copies an owned program bundle into a staged sibling directory before swapping it into place. Unrelated destinations and external bundle links are refused. macOS framework links inside the bundle are preserved. Failed swaps restore the old app; failed restoration retains its backup. Menu creation happens after file installation. Setup never downloads dependencies or touches account directories.
+
+Native CI checks use synthetic profiles and executable stand-ins, including actual frozen GUI startup. Real account sign-in, keychain interactions and account persistence have not been verified on macOS/Linux. The Electron data environment variable is an internal app interface and can change. These releases are experimental. macOS builds use ad-hoc signing, without Apple developer signing/notarization. Linux bundles depend on system glibc and desktop libraries.
+
 ## Version 1.5.0 local setup
 
 The new Setup.cmd/Setup.ps1 are offline installers for an already downloaded package. They do not restore the old network installer. Setup copies a fixed list of program/documentation files to a per-user folder and delegates shortcut creation to the installed app. Profile data remains in its existing separate directory and is not copied, migrated or deleted.

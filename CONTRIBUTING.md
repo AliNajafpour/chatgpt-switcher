@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for your interest! This is a small, single-file tool and the goal is to keep it that way: simple, dependency-free, and auditable.
+Keep this launcher small, readable and auditable. Windows uses PowerShell; macOS and Linux share a Python/Tk picker under `unix/`.
 
 ## Ground rules
 
-- **No new runtime dependencies.** It should stay a plain Windows PowerShell 5.1–compatible script.
+- **No third-party runtime dependencies.** Keep Windows compatible with PowerShell 5.1. Unix source uses Python 3.12+ and standard-library Tk; release archives bundle that runtime. PyInstaller is a build dependency only.
 - **Keep it readable.** Someone should be able to read the whole thing before running it.
 - **Don't touch credentials or account data beyond what's needed to launch a window.** The tool only sets data-dir paths and launches the official app; it must never read, copy, or transmit `auth.json`, cookies, or tokens.
 
@@ -51,4 +51,12 @@ Open an issue with the output of `ChatGPT-Switcher.cmd -Diagnose` (redact anythi
 
 Good fits: reliability of app detection/launch, UX of the picker, accessibility, localization.
 
-Out of scope: anything that scrapes, automates, or interacts with the ChatGPT service itself; anything that touches server-side accounts; bundling a browser or a full app runtime.
+Out of scope: scraping the service, changing server-side accounts, and bundling the official desktop app or a browser.
+
+## macOS and Linux
+
+Run `python3 unix/self_check.py`, `python3 unix/install_check.py` and `python3 unix/ui_check.py` with Python 3.12+ and Tk. Linux GUI checks need a display, or `xvfb-run -a` in CI. All test profiles and installs are disposable fixtures under `work/`.
+
+To build on the target platform, install `pyinstaller==6.22.3` and run `python3 unix/build.py`. This packages the runtime, tests the frozen app and writes an archive plus SHA-256 under `outputs/`. The four native CI jobs publish these as workflow artifacts. Linux builds use Ubuntu 24.04; macOS builds use macOS 15. Real sign-in and profile persistence remain manual release checks.
+
+Unix source commands include `--add NAME`, `--list`, `--launch NAME_OR_ID`, `--app PATH`, `--data-dir PATH` and `--version`. `--install` is for downloaded frozen bundles. Account data lives under `~/Library/Application Support/CodexAccountSwitcher` on macOS and `$XDG_DATA_HOME/codex-account-switcher` or `~/.local/share/codex-account-switcher` on Linux. Removing a profile from the Unix picker unregisters it and keeps its files.

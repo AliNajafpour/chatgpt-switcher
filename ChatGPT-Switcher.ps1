@@ -28,7 +28,7 @@ param(
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:AppVersion = '1.5.0'
+$script:AppVersion = '1.6.0'
 $script:TrayMutexName = 'Local\CodexAccountSwitcher.Tray.' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $script:AppId      = 'Alyawmu.ChatGPTSwitcher'   # taskbar grouping + jump list identity
 $script:ScriptPath = $MyInvocation.MyCommand.Path

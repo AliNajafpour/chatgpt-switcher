@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.0] - 2026-10-30
+
+- Add an English graphical macOS/Linux picker with separate profile folders and launch environments. Removing a profile from this picker preserves its local data.
+- Add offline per-user installers and native builds for Apple Silicon/Intel macOS and ARM64/x64 Linux, with bundled Python and Tk.
+- Test profile storage, literal launch arguments, environment isolation, installer rollback, safe destinations, native GUI widgets and frozen app startup. No tests access real credentials.
+- Keep the Windows launcher and shorten the README to the app description, a real UI screenshot and installation methods.
+- macOS/Linux ports remain experimental pending real account sign-in testing. macOS builds are ad-hoc signed, without Apple developer signing or notarization. Linux builds require glibc 2.39+ and a desktop session.
+
 ## [1.5.0] - 2026-10-29
 
 ### Added

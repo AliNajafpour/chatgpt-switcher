@@ -16,3 +16,4 @@ work/
 outputs/
 .self-check-*/
 .cli-self-check*/
+__pycache__/

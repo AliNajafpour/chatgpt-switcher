@@ -1,0 +1,60 @@
+name: macOS and Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            artifact: macOS-arm64
+          - runner: macos-15-intel
+            artifact: macOS-x64
+          - runner: ubuntu-24.04
+            artifact: Linux-x64
+          - runner: ubuntu-24.04-arm
+            artifact: Linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Build dependency
+        run: python -m pip install pyinstaller==6.22.3
+      - name: Linux display and desktop checks
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb desktop-file-utils
+      - name: Profile and installer checks
+        run: |
+          python unix/self_check.py
+          python unix/install_check.py
+      - name: Linux GUI and packaged app
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a python unix/ui_check.py
+          xvfb-run -a python unix/build.py
+      - name: macOS GUI and packaged app
+        if: runner.os == 'macOS'
+        run: |
+          python unix/ui_check.py
+          python unix/build.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            outputs/*.zip
+            outputs/*.tar.gz
+            outputs/*.sha256
+          if-no-files-found: error
