@@ -7,11 +7,23 @@ import sys
 import tempfile
 import time
 
+from install import install_bundle
+
 binary = Path(sys.argv[1]).resolve()
 work = Path(__file__).resolve().parent.parent / "work"
 with tempfile.TemporaryDirectory(dir=work) as directory:
     root = Path(directory).resolve()
     data = root / "Profile data with spaces"
+    source = next((p for p in binary.parents if p.suffix == ".app"), binary.parent)
+    destination = root / "Installed programs" / source.name
+    desktop = None if sys.platform == "darwin" else root / "Menu" / "switcher.desktop"
+    install_bundle(source, destination, desktop)
+    install_bundle(source, destination, desktop)  # Exercise an upgrade with the actual runtime tree.
+    binary = destination / binary.relative_to(source)
+    if sys.platform == "darwin":
+        subprocess.run(["codesign", "--verify", "--deep", "--strict", str(destination)], check=True)
+    else:
+        subprocess.run(["desktop-file-validate", str(desktop)], check=True)
 
     def run(*args):
         return subprocess.run([str(binary), "--data-dir", str(data), *args], capture_output=True, text=True, check=True, timeout=30).stdout
@@ -41,4 +53,4 @@ with tempfile.TemporaryDirectory(dir=work) as directory:
         if process.poll() is None:
             process.terminate()
         process.wait(timeout=10)
-print("PASS: frozen version, add/list, profile launch environment and GUI startup.")
+print("PASS: frozen installation/upgrade, relocated runtime, add/list, profile launch environment and GUI startup.")
