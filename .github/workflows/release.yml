@@ -1,0 +1,97 @@
+name: Publish tested installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: Successful macOS and Linux workflow run to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate native build
+        id: source
+        shell: pwsh
+        env:
+          RUN_ID: ${{ inputs.native_run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUN_ID -notmatch '^\d+$') { throw 'Invalid run ID' }
+          $build = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read native build' }
+          if ($build.conclusion -ne 'success' -or $build.event -ne 'push' -or $build.head_branch -ne 'main' -or $build.path -ne '.github/workflows/unix.yml') {
+            throw 'Publish only a successful native build pushed to main'
+          }
+          "sha=$($build.head_sha)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.native_run_id }}
+          path: outputs/native
+          merge-multiple: true
+      - name: Verify Windows setup and package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @('self-check.ps1','cli-self-check.ps1','ui-self-check.ps1','setup-self-check.ps1')) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File $check
+            if ($LASTEXITCODE -ne 0) { throw "Failed: $check" }
+          }
+          $payload = @('ChatGPT-Switcher.ps1','ChatGPT-Switcher.cmd','Setup.ps1','Setup.cmd','README.md','LICENSE','CHANGELOG.md','CONTRIBUTING.md','SECURITY-REVIEW.md','REVIEW.md')
+          $archive = Join-Path $PWD 'outputs/Codex-Account-Switcher-Setup.zip'
+          Compress-Archive -LiteralPath $payload -DestinationPath $archive
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($archive + '.sha256'), ($hash + '  ' + [IO.Path]::GetFileName($archive) + "`n"), [Text.Encoding]::ASCII)
+          Expand-Archive -LiteralPath $archive -DestinationPath work/extracted
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File work/extracted/Setup.ps1 -InstallDirectory (Join-Path $PWD 'work/installed') -NoLaunch -NoShortcuts
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Windows setup failed' }
+          foreach ($file in $payload) {
+            if ((Get-FileHash -LiteralPath $file).Hash -ne (Get-FileHash -LiteralPath (Join-Path 'work/installed' $file)).Hash) { throw "Payload mismatch: $file" }
+          }
+      - name: Verify hashes and publish complete release
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @((Join-Path $PWD 'outputs/Codex-Account-Switcher-Setup.zip'))
+          foreach ($name in @('macOS-arm64.zip','macOS-x64.zip','Linux-arm64.tar.gz','Linux-x64.tar.gz')) {
+            $files += Join-Path $PWD "outputs/native/Codex-Account-Switcher-$name"
+          }
+          $assets = @()
+          foreach ($file in $files) {
+            $checksum = $file + '.sha256'
+            $parts = [IO.File]::ReadAllText($checksum).Trim() -split '  ', 2
+            if ($parts.Count -ne 2 -or $parts[1] -ne [IO.Path]::GetFileName($file) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $parts[0]) { throw "Invalid archive hash: $file" }
+            $assets += $file, $checksum
+          }
+          $version = & powershell.exe -NoProfile -File ChatGPT-Switcher.ps1 -Version
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '(\d+\.\d+\.\d+)') { throw 'Invalid version' }
+          $tag = 'v' + $Matches[1]
+          $notes = @'
+          Offline per-user installers for Windows, macOS and Linux. Extract the archive for your platform, then run Setup.cmd, Install.command or sh Install.sh. Install the official desktop app separately and sign in once in each new profile. Upgrades preserve account data.
+
+          Native checks passed for both Mac architectures and Linux x64/ARM64, including profile storage, launch isolation, GUI widgets and the installed bundled runtime. macOS/Linux ports remain experimental: real sign-in identity, persistence and OS credential-store behavior need manual verification. macOS builds are ad-hoc signed without Apple developer signing/notarization and may require Privacy & Security → Open Anyway. macOS 15+; Linux desktop with glibc 2.39+.
+
+          README contains only the app description, installation methods and a real Windows picker screenshot. Each download includes a SHA-256 file.
+          '@
+          Set-Content -LiteralPath work/release-notes.md -Value $notes -Encoding utf8
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --title "$tag - macOS and Linux preview" --notes-file work/release-notes.md --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create draft release' }
+          gh release upload $tag @assets --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'Upload failed; release kept as a draft' }
+          gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish release' }
