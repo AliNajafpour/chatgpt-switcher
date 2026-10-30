@@ -1,6 +1,5 @@
 """Build on the target OS: python unix/build.py. PyInstaller is build-only."""
 import hashlib
-import os
 from pathlib import Path
 import platform
 import shutil
@@ -8,7 +7,7 @@ import subprocess
 import sys
 import tarfile
 
-from install import IDENTITY, MARKER
+from install import IDENTITY, bundle_marker
 
 root = Path(__file__).resolve().parent.parent
 dist = root / "outputs" / "unix-dist"
@@ -25,7 +24,7 @@ if mac:
 command.append(str(root / "unix" / "switcher.py"))
 subprocess.run(command, check=True)
 bundle = dist / (name + ".app" if mac else name)
-(bundle / MARKER).write_text(IDENTITY + "\n")
+bundle_marker(bundle).write_text(IDENTITY + "\n")
 if mac:
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(bundle)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)

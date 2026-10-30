@@ -11,23 +11,28 @@ MARKER = ".codex-switcher-install"
 IDENTITY = "AliNajafpour.CodexAccountSwitcher"
 
 
+def bundle_marker(bundle):
+    return bundle / "Contents" / "Resources" / MARKER if bundle.suffix == ".app" else bundle / MARKER
+
+
 def desktop_entry(program):
     text = str(program)
-    if any(ord(c) < 32 or ord(c) == 127 for c in text):
-        raise ValueError("Installation paths cannot contain control characters.")
+    if "=" in text or any(ord(c) < 32 or ord(c) == 127 for c in text):
+        raise ValueError("Menu entry paths cannot contain '=' or control characters.")
     # Desktop Entry string escaping is applied before Exec argument unquoting.
     for char in ('\\', '"', '`', '$'):
         text = text.replace(char, "\\" + char)
     text = text.replace("\\", "\\\\").replace("%", "%%")
     return ("[Desktop Entry]\nType=Application\nName=" + TITLE + "\n"
-            'Exec="' + text + '"\nIcon=system-users\nTerminal=false\nCategories=Utility;\n'
+            # GLib checks argv[0] before expanding %% in paths; env avoids that.
+            'Exec=/usr/bin/env -- "' + text + '"\nIcon=system-users\nTerminal=false\nCategories=Utility;\n'
             "StartupNotify=false\n")
 
 
 def install_bundle(source, destination, desktop=None):
     source = Path(source).absolute()
     destination = ordinary(destination, directory=True)
-    marker = source / MARKER
+    marker = bundle_marker(source)
     if not source.is_dir() or not marker.is_file() or marker.is_symlink() or marker.read_text().strip() != IDENTITY:
         raise ValueError("Incomplete setup download. Extract the entire archive first.")
     if source != destination and (source in destination.parents or destination in source.parents):
@@ -42,7 +47,7 @@ def install_bundle(source, destination, desktop=None):
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with Store(destination.parent / ".codex-switcher-setup").lock():
         if destination.exists():
-            owned = ordinary(destination / MARKER)
+            owned = ordinary(bundle_marker(destination))
             if not owned.is_file() or owned.read_text().strip() != IDENTITY:
                 raise ValueError("This folder was not installed by this setup. Its files have been left alone.")
         if source != destination:

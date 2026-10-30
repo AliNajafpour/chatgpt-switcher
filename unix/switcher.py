@@ -182,7 +182,7 @@ class Store:
             self.save(config)
 
     def set_app(self, path):
-        executable(path)
+        path = executable(path)
         with self.lock():
             config = self.read()
             config["app"] = str(path)

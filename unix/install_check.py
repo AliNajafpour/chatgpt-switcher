@@ -42,6 +42,16 @@ class Installer(unittest.TestCase):
         install.install_bundle(self.destination, self.destination, desktop)
         self.assertEqual(data.read_text(), "keep")
 
+    def test_mac_marker_stays_inside_resources(self):
+        bundle = self.root / "download" / "Switcher.app"
+        resources = bundle / "Contents" / "Resources"
+        resources.mkdir(parents=True)
+        (resources / install.MARKER).write_text(install.IDENTITY)
+        destination = self.root / "Applications" / "Switcher.app"
+        install.install_bundle(bundle, destination)
+        self.assertEqual((destination / "Contents" / "Resources" / install.MARKER).read_text(), install.IDENTITY)
+        self.assertFalse((destination / install.MARKER).exists())
+
     def test_unrelated_and_nested_destinations_refused(self):
         self.destination.mkdir(parents=True)
         sentinel = self.destination / "my-file"

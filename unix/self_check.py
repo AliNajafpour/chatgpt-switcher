@@ -1,5 +1,6 @@
 """Run with python unix/self_check.py. Uses temporary files, never real accounts."""
 import json
+from contextlib import chdir
 import os
 from pathlib import Path
 import subprocess
@@ -142,6 +143,9 @@ class Profiles(unittest.TestCase):
         with (bundle / "Contents" / "Info.plist").open("wb") as stream:
             plistlib.dump({"CFBundleExecutable": "Codex"}, stream)
         self.assertEqual(switcher.executable(bundle), binary)
+        with chdir(bundle.parent):
+            self.store.set_app(Path("Codex.app"))
+        self.assertEqual(self.store.read()["app"], str(binary))
         with (bundle / "Contents" / "Info.plist").open("wb") as stream:
             plistlib.dump({"CFBundleExecutable": "../../escape"}, stream)
         with self.assertRaises(ValueError):
